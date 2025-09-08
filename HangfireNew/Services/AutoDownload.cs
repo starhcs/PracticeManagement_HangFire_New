@@ -27,7 +27,7 @@ namespace HangfireNew.Services
         public async Task<int> GetLastLogIDAsync()
         {
             using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
+            httpClient.Timeout = TimeSpan.FromMinutes(15);
             var model = new
             {
                 TableName = "AUTODOWNLOADJOBLOGS"
@@ -55,7 +55,7 @@ namespace HangfireNew.Services
         public async Task<string> SendLogsEmail(int initialLogID, int finalLogID)
         {
             using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
+            httpClient.Timeout = TimeSpan.FromMinutes(15);
             var model = new
             {
                 TableName = "AUTODOWNLOADJOBLOGS",
@@ -94,7 +94,7 @@ namespace HangfireNew.Services
                 throw new Exception("Invalid lastLogID received. Aborting Download job.");
             }
             HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
+            httpClient.Timeout = TimeSpan.FromMinutes(15);
             var loginModel = new
             {
                 Email = _userCredentials["AutoDownloadJob"].Email,
@@ -198,7 +198,7 @@ namespace HangfireNew.Services
                                     string gettoken = GetTokenJsonObject["token"].ToString();
                                     httpClient = new HttpClient();
                                     httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", gettoken);
-                                    httpClient.Timeout = TimeSpan.FromMinutes(5);
+                                    httpClient.Timeout = TimeSpan.FromMinutes(15);
 
                                     var downloading_files_model = new
                                     {
@@ -349,14 +349,62 @@ namespace HangfireNew.Services
                                                         string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
                                                         var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
                                                         HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
-                                                        var linkingModel = new
+
+
+                                                        ///CHANGES 
+
+                                                        var linkingMODEL = new
                                                         {
-                                                            TableName = "LinkEraChecks"
+                                                            TableName = "CheckDetails",
+                                                            SearchParam = "ForLinking"
                                                         };
-                                                        string linkingJson = JsonConvert.SerializeObject(linkingModel);
-                                                        var linkingModelContent = new StringContent(linkingJson, Encoding.UTF8, "application/json");
-                                                        string linkingUrl = $"{ApiAddress}Payment/LinkEraChecks";
-                                                        HttpResponseMessage linkingResponse = await httpClient.PostAsync(linkingUrl, linkingModelContent);
+                                                        string linkingprocessFileJson = JsonConvert.SerializeObject(linkingMODEL);
+                                                        var linkingprocessFileContent = new StringContent(linkingprocessFileJson, Encoding.UTF8, "application/json");
+
+                                                        string linkingprocessFileUrl = $"{ApiAddress}Payment/GetcheckforPosting";
+
+                                                        HttpResponseMessage linkingresponse1 = await httpClient.PostAsync(linkingprocessFileUrl, linkingprocessFileContent);
+                                                        if (linkingresponse1.IsSuccessStatusCode)
+                                                        {
+                                                            string Check = await linkingresponse1.Content.ReadAsStringAsync();
+                                                            JArray CheckArray = JArray.Parse(Check);
+                                                            var CheckIds = JsonConvert.DeserializeObject<List<PostEra>>(Check);
+
+                                                            if (CheckIds == null && CheckIds!.Count == 0)
+                                                            {
+
+                                                            }
+                                                            else
+                                                            {
+                                                                JArray array = JArray.FromObject(CheckIds);
+
+                                                                foreach (JObject Header in array)
+                                                                {
+
+                                                                    var linkingModel = new
+                                                                    {
+                                                                        TableName = "LinkEraChecks",
+                                                                        ID = Header["HeaderID"].ToString()
+                                                                    };
+                                                                    string linkingJson = JsonConvert.SerializeObject(linkingModel);
+                                                                    var linkingModelContent = new StringContent(linkingJson, Encoding.UTF8, "application/json");
+                                                                    string linkingUrl = $"{ApiAddress}Payment/LinkEraChecks";
+                                                                    HttpResponseMessage linkingResponse = await httpClient.PostAsync(linkingUrl, linkingModelContent);
+                                                                }
+                                                            }
+                                                        }
+
+                                                        ///CHANGES 
+
+                                                        var RefreshEraPayments = new
+                                                        {
+                                                            TableName = "REFRESHPAYMENTS"
+                                                        };
+                                                        string RefreshEraPaymentsJson = JsonConvert.SerializeObject(RefreshEraPayments);
+                                                        var RefreshEraPaymentsContent = new StringContent(RefreshEraPaymentsJson, Encoding.UTF8, "application/json");
+                                                        string RefreshEraPaymentsUrl = $"{ApiAddress}Payment/RefreshEraPayments";
+                                                        HttpResponseMessage RefreshEraPaymentsResponse = await httpClient.PostAsync(RefreshEraPaymentsUrl, RefreshEraPaymentsContent);
+
                                                     }
                                                     else
                                                     {
@@ -364,10 +412,10 @@ namespace HangfireNew.Services
                                                         {
                                                             TableName = "AUTODOWNLOADJOBLOGS",
                                                             Data = new Dictionary<string, string>
-                                                        {
-                                                            { "Message", $"Files processing failed for SubmitterReceiverID : {Model.ID}" },
-                                                            { "ExceptionMsg", $"{response3.ReasonPhrase}"}
-                                                        }
+                                                            {
+                                                                { "Message", $"Files processing failed for SubmitterReceiverID : {Model.ID}" },
+                                                                { "ExceptionMsg", $"{response3.ReasonPhrase}"}
+                                                            }
                                                         };
                                                         string payloadProcessFilesAfterDownloadFailed = JsonConvert.SerializeObject(process_files_after_download_failed_model);
                                                         var contentProcessFilesAfterDownloadFailed = new StringContent(payloadProcessFilesAfterDownloadFailed, Encoding.UTF8, "application/json");
@@ -394,8 +442,6 @@ namespace HangfireNew.Services
                                                 }
 
                                             }
-
-
                                         }
 
                                     }

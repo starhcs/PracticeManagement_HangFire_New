@@ -27,7 +27,7 @@ namespace HangfireNew.Services
         public async Task<int> GetLastLogIDAsync()
         {
             using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
+            httpClient.Timeout = TimeSpan.FromMinutes(15);
             var model = new
             {
                 TableName = "POSTINGJOBLOGS"
@@ -54,7 +54,7 @@ namespace HangfireNew.Services
         public async Task<string> SendLogsEmail(int initialLogID, int finalLogID)
         {
             using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
+            httpClient.Timeout = TimeSpan.FromMinutes(15);
             var model = new
             {
                 TableName = "POSTINGJOBLOGS",
@@ -92,7 +92,7 @@ namespace HangfireNew.Services
                 throw new Exception("Invalid lastLogID received. Aborting Posting job.");
             }
             HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
+            httpClient.Timeout = TimeSpan.FromMinutes(15);
             var loginModel = new
             {
                 Email = _userCredentials["PostingJob"].Email,
@@ -212,7 +212,7 @@ namespace HangfireNew.Services
                                     var GetTokenJsonObject = JObject.Parse(responseGetTokenContent);
                                     string gettoken = GetTokenJsonObject["token"].ToString();
                                     httpClient = new HttpClient();
-                                    httpClient.Timeout = TimeSpan.FromMinutes(5);
+                                    httpClient.Timeout = TimeSpan.FromMinutes(15);
                                     httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", gettoken);
                                     var downloading_files_model = new
                                     {
