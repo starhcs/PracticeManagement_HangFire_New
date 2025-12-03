@@ -1,23 +1,23 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\ashha\\projects\\PracticeManagement_HangFire_New\\HangfireNew\\HangfireNew.csproj": {}
+    "D:\\Project PMS\\Project Code\\PracticeManagement_HangFire_New\\HangfireNew\\HangfireNew.csproj": {}
   },
   "projects": {
-    "C:\\Users\\ashha\\projects\\PracticeManagement_HangFire_New\\HangfireNew\\HangfireNew.csproj": {
+    "D:\\Project PMS\\Project Code\\PracticeManagement_HangFire_New\\HangfireNew\\HangfireNew.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\ashha\\projects\\PracticeManagement_HangFire_New\\HangfireNew\\HangfireNew.csproj",
+        "projectUniqueName": "D:\\Project PMS\\Project Code\\PracticeManagement_HangFire_New\\HangfireNew\\HangfireNew.csproj",
         "projectName": "HangfireNew",
-        "projectPath": "C:\\Users\\ashha\\projects\\PracticeManagement_HangFire_New\\HangfireNew\\HangfireNew.csproj",
-        "packagesPath": "C:\\Users\\ashha\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\ashha\\projects\\PracticeManagement_HangFire_New\\HangfireNew\\obj\\",
+        "projectPath": "D:\\Project PMS\\Project Code\\PracticeManagement_HangFire_New\\HangfireNew\\HangfireNew.csproj",
+        "packagesPath": "C:\\Users\\Dawoo\\.nuget\\packages\\",
+        "outputPath": "D:\\Project PMS\\Project Code\\PracticeManagement_HangFire_New\\HangfireNew\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\ashha\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\Dawoo\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -26,6 +26,7 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -44,7 +45,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "9.0.100"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net6.0": {
@@ -106,7 +107,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.101\\RuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.305\\RuntimeIdentifierGraph.json"
         }
       }
     }
