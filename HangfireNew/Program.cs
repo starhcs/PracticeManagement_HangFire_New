@@ -12,6 +12,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<ApiSettings>(builder.Configuration.GetSection("ApiSettings"));
 builder.Services.Configure<CredentialsStore>(builder.Configuration);
 
+builder.Services.Configure<ConnectionStrings>(builder.Configuration.GetSection("ConnectionStrings"));
+
 // Register services
 builder.Services.AddScoped<JobCoordinator>();
 
@@ -20,6 +22,7 @@ builder.Services.AddScoped<ISubmissionService, SubmissionService>();
 builder.Services.AddScoped<IPostingService, PostingService>();
 builder.Services.AddScoped<IMarkNoShowAppointmentsService, MarkNoShowAppointmentsService>();
 builder.Services.AddScoped<IReportsLogsService, ReportsLogsService>();
+builder.Services.AddScoped<IAppointmentReminder, AppointmentReminder>();
 
 builder.Services.AddControllers();
 
@@ -68,12 +71,14 @@ using (var scope = app.Services.CreateScope())
     var submissionService = scope.ServiceProvider.GetRequiredService<ISubmissionService>();
     var marknoshowService = scope.ServiceProvider.GetRequiredService<IMarkNoShowAppointmentsService>();
     var reportsLogsService = scope.ServiceProvider.GetRequiredService<IReportsLogsService>();
+    var appointmentReminder = scope.ServiceProvider.GetRequiredService<IAppointmentReminder>();
 
     RecurringJob.RemoveIfExists("auto-download-job");
     RecurringJob.RemoveIfExists("submission-job");
     RecurringJob.RemoveIfExists("posting-job");
     RecurringJob.RemoveIfExists("mark-noshow-job");
     RecurringJob.RemoveIfExists("reports-logs-job");
+    RecurringJob.RemoveIfExists("appointment-email-job");
 
     RecurringJob.AddOrUpdate(
         "auto-download-job",
@@ -104,6 +109,13 @@ using (var scope = app.Services.CreateScope())
         () => reportsLogsService.GenerateAndRmailReportsLogs(),
         "0 13 * * *" // once a day at 1:00 PM
     );
+
+        RecurringJob.AddOrUpdate(
+    "appointment-email-job",
+    () => appointmentReminder.AppointmentReminderJob(),
+      "0 0 * * 0" //Every Sunday 12 AM 
+    );
+
 }
 
 

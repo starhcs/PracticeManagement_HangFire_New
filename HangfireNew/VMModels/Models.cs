@@ -65,4 +65,11 @@ namespace HangfireNew.VMModels
         public int TemplateID { get; set; }
         public int FileID { get; set; }
     }
+
+    public class ConnectionStrings
+    {
+        public string ProjectXLive { get; set; }
+        public string Audit { get; set; }
+
+    }
 }
