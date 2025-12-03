@@ -24,6 +24,7 @@ namespace HangfireNew.Services
             _userCredentials = credentialsStore.Value.UserCredentials;
             _httpClient = new HttpClient();
         }
+
         public async Task<int> GetLastLogIDAsync()
         {
             using HttpClient httpClient = new();

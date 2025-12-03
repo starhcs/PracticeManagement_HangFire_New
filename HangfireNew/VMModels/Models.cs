@@ -65,4 +65,23 @@ namespace HangfireNew.VMModels
         public int TemplateID { get; set; }
         public int FileID { get; set; }
     }
+
+    public class AppointmentEmail 
+    {
+        public string? Email { get; set; }
+        public string? To { get; set; }
+        public string? From { get; set; }
+        public DateTime? CreatedDate { get; set; }
+        public DateTime? AppointmentTime { get; set; }
+
+
+    }
+
+    public class ConnectionStrings
+    {
+        public string ProjectXLive { get; set; }
+        public string Audit { get; set; }
+
+    }
+
 }

@@ -163,7 +163,7 @@ namespace HangfireNew.Services
                     else
                     {
 
-                        for (int i = 0; i < data.Count; i++)
+                        for (int i = 0; i < data.Count; i++) /////////// practices loop iteration
                         {
                             string switchPracticeUrl = $"{ApiAddress}General/SwitchPractice";
                             var switchPracticeModel = new
