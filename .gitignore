@@ -1,7 +1,24 @@
-﻿################################################################################
-# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
-################################################################################
+﻿# --- General .NET / Visual Studio ---
+.vs/
+[Bb]in/
+[Oo]bj/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
 
-/.vs
-/HangfireNew/obj/Debug/net6.0
-/HangfireNew/obj/Debug/net6.0/HangfireNew.assets.cache
+# --- Hangfire / Database / Storage ---
+# This stops Hangfire's local storage files from showing up as changes
+*.db
+*.db-shm
+*.db-wal
+*.mdf
+*.ldf
+App_Data/
+
+# --- Logs ---
+*.log
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
