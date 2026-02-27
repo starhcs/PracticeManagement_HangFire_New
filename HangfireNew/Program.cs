@@ -113,7 +113,7 @@ using (var scope = app.Services.CreateScope())
         RecurringJob.AddOrUpdate(
     "appointment-email-job",
     () => appointmentReminder.AppointmentReminderJob(),
-      "0 0 * * 0" //Every Sunday 12 AM 
+      "*/15 * * * *"// every 15 mins //"0 0 * * 0" //Every Sunday 12 AM 
     );
 
 }
