@@ -28,6 +28,9 @@ namespace HangfireNew.VMModels
     {
         public int SubmitterReceiverID { get; set; }
         public int PracticeID { get; set; }
+
+        public string ExportFormat { get; set; }
+
     }
 
 
@@ -66,10 +69,22 @@ namespace HangfireNew.VMModels
         public int FileID { get; set; }
     }
 
+    public class AppointmentEmail
+    {
+        public string? Email { get; set; }
+        public string? To { get; set; }
+        public string? From { get; set; }
+        public DateTime? CreatedDate { get; set; }
+        public DateTime? AppointmentTime { get; set; }
+
+
+    }
+
     public class ConnectionStrings
     {
         public string ProjectXLive { get; set; }
         public string Audit { get; set; }
 
     }
+
 }
