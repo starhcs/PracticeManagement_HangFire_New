@@ -3,10 +3,16 @@ using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
 using System.Text;
 using HangfireNew.VMModels;
+<<<<<<< HEAD
 using Azure;
 using Hangfire;
 using System.Data;
 using System.Data.SqlClient;
+=======
+using Hangfire;
+using System.Data;
+using Microsoft.Data.SqlClient;
+>>>>>>> Dawood
 
 namespace HangfireNew.Services
 {
@@ -31,6 +37,7 @@ namespace HangfireNew.Services
             _connectionstrings = connectionstrings.Value;
         }
 
+<<<<<<< HEAD
         [Hangfire.AutomaticRetry(Attempts = 0)]
         public async Task AppointmentReminderJob()
         {
@@ -38,6 +45,15 @@ namespace HangfireNew.Services
             //DateTime jobTimestamp = Convert.ToDateTime("2025-12-04 02:24:37.323"); //DateTime.Now; ////// Current Timestamp 2025-11-28 07:05:00.000
 
             DateTime jobTimestamp = DateTime.Now;
+=======
+        [AutomaticRetry(Attempts = 0)]
+        public async Task AppointmentReminderJob()
+        {
+
+            //DateTime jobTimestamp = Convert.ToDateTime("2025-11-28 02:09:37.323"); //DateTime.Now; ////// Current Timestamp 2025-11-28 07:05:00.000
+
+           DateTime jobTimestamp = DateTime.Now;
+>>>>>>> Dawood
 
             HttpClient httpClient = new();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
@@ -166,7 +182,11 @@ namespace HangfireNew.Services
 
                                     //////////////////////////////////////////////// FROM HERE OUR JOB WILL START FOR EACH RECORD ///////////////////////////////////////////////////////
 
+<<<<<<< HEAD
 
+=======
+                                    
+>>>>>>> Dawood
 
                                     string connString = _connectionstrings.ProjectXLive;
                                     DataSet ds = new DataSet();
@@ -182,7 +202,11 @@ namespace HangfireNew.Services
 
                                             cmd.Parameters.AddWithValue("@ActionType", 0);
                                             cmd.Parameters.AddWithValue("@TimeStamp", jobTimestamp);
+<<<<<<< HEAD
                                             cmd.Parameters.AddWithValue("@PracticeID", data[i].PracticeID);
+=======
+                                            cmd.Parameters.AddWithValue("@PracticeID", data[i].PracticeID); 
+>>>>>>> Dawood
 
 
 
@@ -223,7 +247,11 @@ namespace HangfireNew.Services
                                                 { "Contact", row["ContactPhoneNumber"].ToString() },
                                                 { "Email1", row["EmailAddress"].ToString() },
                                                 { "JobReminder1", row["JobReminder1"].ToString() }
+<<<<<<< HEAD
                                                 
+=======
+
+>>>>>>> Dawood
 
 
 
@@ -275,7 +303,11 @@ namespace HangfireNew.Services
 
                                         }
                                     }
+<<<<<<< HEAD
 
+=======
+                                    
+>>>>>>> Dawood
 
                                     //get table 0 and table 1 from dataset and then loop through these tables and run the Email method for each record
 
