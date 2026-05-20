@@ -24,6 +24,7 @@ namespace HangfireNew.Services
             _userCredentials = credentialsStore.Value.UserCredentials;
             _httpClient = new HttpClient();
         }
+
         public async Task<int> GetLastLogIDAsync()
         {
             using HttpClient httpClient = new();
@@ -198,7 +199,7 @@ namespace HangfireNew.Services
                                     string gettoken = GetTokenJsonObject["token"].ToString();
                                     httpClient = new HttpClient();
                                     httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", gettoken);
-                                    httpClient.Timeout = TimeSpan.FromMinutes(15);
+                                    httpClient.Timeout = TimeSpan.FromMinutes(20);
 
                                     var downloading_files_model = new
                                     {
@@ -293,6 +294,9 @@ namespace HangfireNew.Services
 
                                                     try
                                                     {
+                                                        httpClient = new HttpClient();
+                                                        httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", gettoken);
+                                                        httpClient.Timeout = TimeSpan.FromMinutes(20);
                                                         response3 = await httpClient.PostAsync(processFileUrl2, processFileContent2);
 
                                                     }

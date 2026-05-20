@@ -37,7 +37,7 @@ namespace HangfireNew.Services
 
             //DateTime jobTimestamp = Convert.ToDateTime("2025-11-28 02:09:37.323"); //DateTime.Now; ////// Current Timestamp 2025-11-28 07:05:00.000
 
-            DateTime jobTimestamp = DateTime.Now;
+           DateTime jobTimestamp = DateTime.Now;
 
             HttpClient httpClient = new();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
@@ -166,7 +166,7 @@ namespace HangfireNew.Services
 
                                     //////////////////////////////////////////////// FROM HERE OUR JOB WILL START FOR EACH RECORD ///////////////////////////////////////////////////////
 
-
+                                    
 
                                     string connString = _connectionstrings.ProjectXLive;
                                     DataSet ds = new DataSet();
@@ -182,7 +182,7 @@ namespace HangfireNew.Services
 
                                             cmd.Parameters.AddWithValue("@ActionType", 0);
                                             cmd.Parameters.AddWithValue("@TimeStamp", jobTimestamp);
-                                            cmd.Parameters.AddWithValue("@PracticeID", data[i].PracticeID);
+                                            cmd.Parameters.AddWithValue("@PracticeID", data[i].PracticeID); 
 
 
 
@@ -275,7 +275,7 @@ namespace HangfireNew.Services
 
                                         }
                                     }
-
+                                    
 
                                     //get table 0 and table 1 from dataset and then loop through these tables and run the Email method for each record
 

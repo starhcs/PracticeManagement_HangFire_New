@@ -244,7 +244,18 @@ namespace HangfireNew.Services
 
                                         if (CheckIds == null && CheckIds!.Count == 0)
                                         {
-
+                                            var process_files_after_download_model = new
+                                            {
+                                                TableName = "POSTINGJOBLOGS",
+                                                Data = new Dictionary<string, string>
+                                                            {
+                                                                { "Message", $"No check Found for Posting" },
+                                                                { "ExceptionMsg", "" }
+                                                            }
+                                            };
+                                            string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
+                                            var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
+                                            HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
                                         }
                                         else
                                         {
@@ -287,12 +298,39 @@ namespace HangfireNew.Services
                                                         var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
                                                         HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
                                                     }
+                                                    else
+                                                    {
+                                                        var process_files_after_download_model = new
+                                                        {
+                                                            TableName = "POSTINGJOBLOGS",
+                                                            Data = new Dictionary<string, string>
+                                                            {
+                                                                { "Message", $"Failed : {Header["PaymentType"].ToString()} for Check  {Header["TRNCHECKNUMBER"].ToString()}" },
+                                                                { "ExceptionMsg", "" }
+                                                            }
+                                                        };
+                                                        string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
+                                                        var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
+                                                        HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
+                                                    }
                                             }
                                         }
                                     }
                                 }
                                 else
                                 {
+                                    var process_files_after_download_model = new
+                                    {
+                                        TableName = "POSTINGJOBLOGS",
+                                        Data = new Dictionary<string, string>
+                                        {
+                                            { "Message", $"Api Fail : GetFreshToken" },
+                                            { "ExceptionMsg", "" }
+                                        }
+                                    };
+                                    string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
+                                    var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
+                                    HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
                                 }
                             }
                             else
@@ -319,7 +357,22 @@ namespace HangfireNew.Services
                     }
                 }
 
-            int lastLogID1 = await GetLastLogIDAsync();
+
+                var job_started_model_END = new
+                {
+                    TableName = "POSTINGJOBLOGS",
+                    Data = new Dictionary<string, string>
+                    {
+                             { "Message", $"Posting Job Ended" },
+                            { "ExceptionMsg", "" }
+                    }
+                };
+                string payloadJobStarted_END = JsonConvert.SerializeObject(job_started_model_END);
+                var contentJobStarted_END = new StringContent(payloadJobStarted_END, Encoding.UTF8, "application/json");
+                HttpResponseMessage responseJobStarted_END = await httpClient.PostAsync(WriteLogsURL, contentJobStarted_END);
+
+
+                int lastLogID1 = await GetLastLogIDAsync();
             string response = await SendLogsEmail(lastLogID, lastLogID1);
             Console.WriteLine(response);
             }
