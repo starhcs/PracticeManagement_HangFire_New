@@ -3,10 +3,9 @@ using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
 using System.Text;
 using HangfireNew.VMModels;
-using Azure;
 using Hangfire;
 using System.Data;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 
 namespace HangfireNew.Services
 {
@@ -31,7 +30,7 @@ namespace HangfireNew.Services
             _connectionstrings = connectionstrings.Value;
         }
 
-        [Hangfire.AutomaticRetry(Attempts = 0)]
+        [AutomaticRetry(Attempts = 0)]
         public async Task AppointmentReminderJob()
         {
 
