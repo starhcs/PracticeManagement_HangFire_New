@@ -25,7 +25,7 @@ namespace HangfireNew.Services
             _httpClient = new HttpClient();
         }
         [AutomaticRetry(Attempts = 0)]
-        public async Task MarkNoShowAppointmentsJob()
+        public async Task MarkNoShowAppointmentsJob() //checking
         {
             HttpClient httpClient = new();
             httpClient.Timeout = TimeSpan.FromMinutes(5);
@@ -41,7 +41,7 @@ namespace HangfireNew.Services
 
             var contentLogin = new StringContent(payloadLogin, Encoding.UTF8, "application/json");
 
-
+            /// for tetsing bla bla bla
             HttpResponseMessage responseLogin = await httpClient.PostAsync(loginURL, contentLogin);
             if (responseLogin.IsSuccessStatusCode)
             {

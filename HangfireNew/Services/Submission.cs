@@ -255,7 +255,8 @@ namespace HangfireNew.Services
                                                 string processFileJson1 = JsonConvert.SerializeObject(Model);
                                                 var processFileContent1 = new StringContent(processFileJson1, Encoding.UTF8, "application/json");
 
-                                                string processFileUrl1 = $"{ApiAddress}ElectronicSubmission/GetClaimIDsAutoSubmission";
+                                                  string processFileUrl1 = $"{ApiAddress}ElectronicSubmission/GetClaimIDsAutoSubmission";
+                                                //string processFileUrl1 = $"http://localhost:16655/ElectronicSubmission/GetClaimIDsAutoSubmission";
 
                                                 HttpResponseMessage response2 = await httpClient.PostAsync(processFileUrl1, processFileContent1);
 
