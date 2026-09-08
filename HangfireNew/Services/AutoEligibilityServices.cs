@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System.Net.Http.Headers;
 using System.Text;
+using static Org.BouncyCastle.Crypto.Engines.SM2Engine;
 
 namespace HangfireNew.Services
 {
@@ -31,16 +32,39 @@ namespace HangfireNew.Services
         [AutomaticRetry(Attempts = 0)]
         public async Task AutoAppointmentEligibilityJob()
         {
-            
-            
+            string ApiAddress = $"{_apiSettings.BaseAddress}";
+            string WriteLogsURL = $"{ApiAddress}HangfireJobs/WriteEligibilityJobLog";
+
+
+            int lastLogID = await GetLastLogIDAsync("ELIGIBILITYJOBLOGS") + 1;
+            if (lastLogID <= 0)
+            {
+                throw new Exception("Invalid lastLogID received. Aborting Submission job.");
+            }
             using var httpClient = new HttpClient
             {
                 Timeout = TimeSpan.FromMinutes(15)
             };
 
+            var job_started_model = new
+            {
+                TableName = "ELIGIBILITYJOBLOGS",
+                Data = new Dictionary<string, string>
+                    {
+                            { "Message", "Eligibility Job Started" },
+                            { "ExceptionMsg", "" }
+                    }
+            };
+            string payloadJobStarted = JsonConvert.SerializeObject(job_started_model);
+            var contentJobStarted = new StringContent(payloadJobStarted, Encoding.UTF8, "application/json");
+            HttpResponseMessage responseJobStarted = await httpClient.PostAsync(WriteLogsURL, contentJobStarted);
+
+
             string token = await Login(httpClient);
             httpClient.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", token);
+
+
 
             var practices = await GetPractices(httpClient);
 
@@ -66,6 +90,21 @@ namespace HangfireNew.Services
                             httpClient.DefaultRequestHeaders.Authorization =
                                 new AuthenticationHeaderValue("Bearer", freshToken);
 
+
+                            var downloading_files_model = new
+                            {
+                                TableName = "ELIGIBILITYJOBLOGS",
+                                Data = new Dictionary<string, string>
+                                        {
+                                            { "Message", $"Eligibility Job Started for {practice.PracticeName}" },
+                                            { "ExceptionMsg", "" }
+                                        }
+                            };
+                            string payloadDownloadingFiles = JsonConvert.SerializeObject(downloading_files_model);
+                            var contentDownloadingFiles = new StringContent(payloadDownloadingFiles, Encoding.UTF8, "application/json");
+                            HttpResponseMessage responseDownloadingFiles = await httpClient.PostAsync(WriteLogsURL, contentDownloadingFiles);
+
+
                             var getResponse = await httpClient.PostAsync(
                                 $"{_apiSettings.BaseAddress}Eligibility/GetAppointmentEligibilityJob",
                                 CreateContent(new { TableName = "AppointmentEligibility" }));
@@ -89,75 +128,111 @@ namespace HangfireNew.Services
                                         Data = new List<AppointmentEligibilityDto> { item }
                                     }));
 
+                                if (processResponse.IsSuccessStatusCode)
+                                {
+                                    var process_files_after_download_model = new
+                                    {
+                                        TableName = "ELIGIBILITYJOBLOGS",
+                                        Data = new Dictionary<string, string>
+                                                                    {
+                                                                        { "Message", $"Practice {practice.PracticeName}, Eligbility Type : Appointment, processed successfully." },
+                                                                        { "ExceptionMsg", "" }
+                                                                    }
+                                    };
+                                    string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
+                                    var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
+                                    HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
+                                }
+                                else
+                                {
+                                    var process_files_after_download_model = new
+                                    {
+                                        TableName = "ELIGIBILITYJOBLOGS",
+                                        Data = new Dictionary<string, string>
+                                                                    {
+                                                                        { "Message", "" },
+                                                                        { "ExceptionMsg", $"Practice {practice.PracticeName}, Eligbility Type : Appointment, process Failed." }
+                                                                    }
+                                    };
+                                    string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
+                                    var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
+                                    HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
+                                }
+
                                 if (!processResponse.IsSuccessStatusCode)
                                 {
 
                                     continue;
                                 }
-                                //var processResponse = await httpClient.PostAsync(
-                                //    $"{_apiSettings.BaseAddress}Eligibility/AppointmentEligibilityJob",
-                                //    CreateContent(new
-                                //    {
-                                //        TableName = "GETDATAAPPOINTMENTEDI270GENERATION",
-                                //        Data = data
-                                //    }));
-
-                                //if (!processResponse.IsSuccessStatusCode)
-                                //    continue;
-
                             }
+
+
+
+                            var downloading_files_model1 = new
+                            {
+                                TableName = "ELIGIBILITYJOBLOGS",
+                                Data = new Dictionary<string, string>
+                                        {
+                                            { "Message", $"Eligibility Job Ended for {practice.PracticeName}" },
+                                            { "ExceptionMsg", "" }
+                                        }
+                            };
+                            string payloadDownloadingFiles1 = JsonConvert.SerializeObject(downloading_files_model1);
+                            var contentDownloadingFiles1 = new StringContent(payloadDownloadingFiles1, Encoding.UTF8, "application/json");
+                            HttpResponseMessage responseDownloadingFiles1 = await httpClient.PostAsync(WriteLogsURL, contentDownloadingFiles1);
                         }
                         catch
                         {
 
                             continue;
                         }
+
                     }
                 }
 
-                    if(AutoEligibilityParams.AutoEligbilityParam == "Patient")
+                if (AutoEligibilityParams.AutoEligbilityParam == "Patient")
+                {
+                    foreach (var practice in practices)
                     {
-                        foreach (var practice in practices)
+                        try
                         {
-                            try
+
+                            // SWITCH PRACTICE
+                            await SwitchPractice(httpClient, practice.PracticeID);
+
+                            // GET FRESH TOKEN
+                            string freshToken = await GetFreshToken(httpClient);
+                            httpClient.DefaultRequestHeaders.Authorization =
+                                new AuthenticationHeaderValue("Bearer", freshToken);
+
+
+                            var downloading_files_model = new
                             {
-                           
-                                // SWITCH PRACTICE
-                                await SwitchPractice(httpClient,practice.PracticeID);
+                                TableName = "ELIGIBILITYJOBLOGS",
+                                Data = new Dictionary<string, string>
+                                        {
+                                            { "Message", $"Eligibility Job Started for {practice.PracticeName}" },
+                                            { "ExceptionMsg", "" }
+                                        }
+                            };
+                            string payloadDownloadingFiles = JsonConvert.SerializeObject(downloading_files_model);
+                            var contentDownloadingFiles = new StringContent(payloadDownloadingFiles, Encoding.UTF8, "application/json");
+                            HttpResponseMessage responseDownloadingFiles = await httpClient.PostAsync(WriteLogsURL, contentDownloadingFiles);
 
-                                // GET FRESH TOKEN
-                                string freshToken = await GetFreshToken(httpClient);
-                                httpClient.DefaultRequestHeaders.Authorization =
-                                    new AuthenticationHeaderValue("Bearer", freshToken);
 
-                                var getResponse = await httpClient.PostAsync(
-                                    $"{_apiSettings.BaseAddress}Eligibility/GetPatientAutoEligibilityJob",
-                                    CreateContent(new { TableName = "AppointmentEligibility" }));
 
-                                if (!getResponse.IsSuccessStatusCode)
-                                    continue;
+                            var getResponse = await httpClient.PostAsync(
+                                $"{_apiSettings.BaseAddress}Eligibility/GetPatientAutoEligibilityJob",
+                                CreateContent(new { TableName = "AppointmentEligibility" }));
 
-                            //    var data = JsonConvert.DeserializeObject<List<PatientEligibilityDto>>(
-                            //        await getResponse.Content.ReadAsStringAsync());
+                            if (!getResponse.IsSuccessStatusCode)
+                                continue;
 
-                            //if (data == null || data.Count == 0)
-                            //    continue;
-
-                            //var processResponse = await httpClient.PostAsync(
-                            //    $"{_apiSettings.BaseAddress}Eligibility/EligibilityRequest",
-                            //    CreateContent(new
-                            //    {
-                            //        TableName = "Generate270",
-                            //        Data = data
-                            //    }));
-
-                            //if (!processResponse.IsSuccessStatusCode)
-                            //        continue;
                             var data = JsonConvert.DeserializeObject<List<PatientEligibilityDto>>(
                              await getResponse.Content.ReadAsStringAsync());
 
                             if (data == null || data.Count == 0)
-                                return;   
+                                return;
 
                             foreach (var item in data)
                             {
@@ -169,24 +244,119 @@ namespace HangfireNew.Services
                                         Data = new List<PatientEligibilityDto> { item }
                                     }));
 
+                                if (processResponse.IsSuccessStatusCode)
+                                {
+                                    var process_files_after_download_model = new
+                                    {
+                                        TableName = "ELIGIBILITYJOBLOGS",
+                                        Data = new Dictionary<string, string>
+                                                                    {
+                                                                        { "Message", $"Practice {practice.PracticeName}, Eligbility Type : Patient, processed successfully." },
+                                                                        { "ExceptionMsg", "" }
+                                                                    }
+                                    };
+                                    string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
+                                    var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
+                                    HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
+                                }
+                                else
+                                {
+                                    var process_files_after_download_model = new
+                                    {
+                                        TableName = "ELIGIBILITYJOBLOGS",
+                                        Data = new Dictionary<string, string>
+                                                                    {
+                                                                        { "Message", "" },
+                                                                        { "ExceptionMsg", $"Practice {practice.PracticeName}, Eligbility Type : Patient, process Failed." }
+                                                                    }
+                                    };
+                                    string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
+                                    var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
+                                    HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
+                                }
+
                                 if (!processResponse.IsSuccessStatusCode)
                                 {
-                                
+
                                     continue;
                                 }
 
-                               
-                            }
-                        }
-                            catch
-                            {
 
-                                continue;
                             }
+
+
+
+                            var downloading_files_model1 = new
+                            {
+                                TableName = "ELIGIBILITYJOBLOGS",
+                                Data = new Dictionary<string, string>
+                                        {
+                                            { "Message", $"Eligibility Job Ended for {practice.PracticeName}" },
+                                            { "ExceptionMsg", "" }
+                                        }
+                            };
+                            string payloadDownloadingFiles1 = JsonConvert.SerializeObject(downloading_files_model1);
+                            var contentDownloadingFiles1 = new StringContent(payloadDownloadingFiles1, Encoding.UTF8, "application/json");
+                            HttpResponseMessage responseDownloadingFiles1 = await httpClient.PostAsync(WriteLogsURL, contentDownloadingFiles1);
+
+
+                        }
+                        catch
+                        {
+
+                            continue;
                         }
                     }
                 }
-            
+            }
+
+            var job_finished_model = new
+            {
+                PracticeID = 0,
+                TableName = "ELIGIBILITYJOBLOGS",
+                Data = new Dictionary<string, string>
+                            {
+                                { "Message", $"Eligibility Job Ended" },
+                                { "ExceptionMsg", "" }
+                            }
+            };
+            string payloadJobFinished = JsonConvert.SerializeObject(job_finished_model);
+            var contentJobFinished = new StringContent(payloadJobFinished, Encoding.UTF8, "application/json");
+            HttpResponseMessage responseJobFinished = await httpClient.PostAsync(WriteLogsURL, contentJobFinished);
+
+
+            int lastLogID1 = await GetLastLogIDAsync("ELIGIBILITYJOBLOGS");
+            string response = await SendLogsEmail(lastLogID, lastLogID1);
+
+        }
+
+
+        public async Task<int> GetLastLogIDAsync(string tablename )
+        {
+            using HttpClient httpClient = new();
+            httpClient.Timeout = TimeSpan.FromMinutes(5);
+            var model = new
+            {
+                TableName = tablename
+            };
+
+            string apiUrl = $"{_apiSettings.BaseAddress}HangfireJobs/GetLastLogID";
+            string payload = JsonConvert.SerializeObject(model);
+            var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+            HttpResponseMessage response = await httpClient.PostAsync(apiUrl, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string jsonResult = await response.Content.ReadAsStringAsync();
+                int logId = JsonConvert.DeserializeObject<int>(jsonResult);
+                return logId;
+            }
+            else
+            {
+
+                throw new Exception($"API call failed: {response.StatusCode}");
+            }
         }
 
         private async Task<string> Login(HttpClient httpClient)
@@ -265,17 +435,10 @@ namespace HangfireNew.Services
                 CreateContent(new
                 {
                     TableName = "PracticesSetting",
-                    //SearchCriteria = new
-                    //{
-
-                    //{ "Search", "AutoEligibilityJob" }
-
-
-                    //}
                     SearchCriteria = new
                     {
                         Search = "AutoEligibilityJob",
-                      
+
                     }
                 }));
 
@@ -286,9 +449,43 @@ namespace HangfireNew.Services
 
             return JsonConvert.DeserializeObject<AutoEligibilityParams>(json);
         }
+
+        public async Task<string> SendLogsEmail(int initialLogID, int finalLogID)
+        {
+            using HttpClient httpClient = new();
+            httpClient.Timeout = TimeSpan.FromMinutes(15);
+            var model = new
+            {
+                TableName = "ELIGIBILITYJOBLOGS",
+                LogsNature = "ELIGIBILITY",
+                Data = new
+                {
+                    InitialLogID = initialLogID.ToString(),
+                    FinalLogID = finalLogID.ToString()
+                }
+            };
+
+
+            string apiUrl = $"{_apiSettings.BaseAddress}HangfireJobs/SendLogsEmail";
+            string payload = JsonConvert.SerializeObject(model);
+            var content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+            HttpResponseMessage response = await httpClient.PostAsync(apiUrl, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                string jsonResult = await response.Content.ReadAsStringAsync();
+                return jsonResult;
+            }
+            else
+            {
+                throw new Exception($"API call failed: {response.StatusCode}");
+            }
+        }
+
     }
 
-       
+
 
     public class AppointmentEligibilityDto
     {
@@ -304,7 +501,7 @@ namespace HangfireNew.Services
 
     public class PatientEligibilityDto
     {
-       // public string PatientID { get; set; }
+        // public string PatientID { get; set; }
         //public string EligiblityDate { get; set; }
         //public string InsuranceID { get; set; }
         public string PatientInsuranceID { get; set; }
@@ -326,7 +523,7 @@ namespace HangfireNew.Services
         public string AppointmentDays { get; set; }
     }
 
-    }
+}
 
 ////////////////////////////////////
 //using Hangfire;

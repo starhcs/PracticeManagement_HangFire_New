@@ -324,7 +324,10 @@ namespace HangfireNew.Services
                                                                     var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
                                                                     HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
 
+
+
                                                                 }
+                                                            
                                                             }
                                                             else
                                                             {
