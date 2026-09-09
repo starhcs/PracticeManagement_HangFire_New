@@ -457,7 +457,7 @@ namespace HangfireNew.Services
             var model = new
             {
                 TableName = "ELIGIBILITYJOBLOGS",
-                LogsNature = "ELIGIBILITY",
+                LogsNature = "Eligibility",
                 Data = new
                 {
                     InitialLogID = initialLogID.ToString(),
