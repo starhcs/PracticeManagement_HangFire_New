@@ -39,6 +39,28 @@ builder.Services.AddControllers();
 builder.Services.AddHangfire(x => x.UseSqlServerStorage(builder.Configuration.GetConnectionString("Audit")));
 builder.Services.AddHangfireServer();
 
+// --- One-at-a-time rule for the submission jobs ------------------------------------
+// "submission-job" (Hourly) and "Daily-submission-job" (Daily) both call
+// ISubmissionService.SubmissionJob, so they share one mutex: if one of them is already
+// running - scheduled or triggered by hand from /hangfire/recurring - the other one
+// waits for it to finish and then runs, instead of running at the same time.
+//
+// It is registered as a GLOBAL filter (not an attribute) because Hangfire resolves
+// filter attributes from the job type/method stored in the Hangfire tables, which for
+// "() => submissionService.SubmissionJob(...)" is the concrete SubmissionService - an
+// attribute on ISubmissionService is silently ignored.
+//
+// To make another job wait for submission too, add its method name to the same filter,
+// e.g. new JobMutexFilter("submission-jobs", nameof(ISubmissionService.SubmissionJob),
+//                         nameof(IPostingService.PostingJob))
+GlobalJobFilters.Filters.Add(new JobMutexFilter(
+    "submission-jobs",
+    nameof(ISubmissionService.SubmissionJob))
+{
+    WaitMinutes = 10,
+    RetryDelayMinutes = 10
+});
+
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -86,17 +108,14 @@ using (var scope = app.Services.CreateScope())
 
     RecurringJob.RemoveIfExists("auto-download-job");
     RecurringJob.RemoveIfExists("submission-job");
-    RecurringJob.RemoveIfExists("posting-job"); //TV27424589,TV27364757
+    RecurringJob.RemoveIfExists("Daily-submission-job");
+    RecurringJob.RemoveIfExists("posting-job");
     RecurringJob.RemoveIfExists("mark-noshow-job");
     RecurringJob.RemoveIfExists("reports-logs-job");
     RecurringJob.RemoveIfExists("appointment-email-job");
     RecurringJob.RemoveIfExists("AppointmentEligibilityJob");
     RecurringJob.RemoveIfExists("AutoEligibilityJob");
 
-
-    
-
-    string aa = jobSettings["Downloading"];
 
     // --- 1. Auto Download Job ---
     if (jobSettings["Downloading"] == "1")
@@ -107,18 +126,17 @@ using (var scope = app.Services.CreateScope())
     {
         RecurringJob.RemoveIfExists("auto-download-job");
     }
-
-    aa = jobSettings["Submission"];
     // --- 2. Submission Job ---
     if (jobSettings["Submission"] == "1")
     {
-        RecurringJob.AddOrUpdate("submission-job", () => submissionService.SubmissionJob(), "15 */2 * * *");
+        RecurringJob.AddOrUpdate("submission-job", () => submissionService.SubmissionJob("Hourly"), "15 */2 * * *");
+        RecurringJob.AddOrUpdate("Daily-submission-job", () => submissionService.SubmissionJob("Daily"), "0 22 * * *", new RecurringJobOptions { TimeZone = EasternTimeZone() });
     }
     else
     {
         RecurringJob.RemoveIfExists("submission-job");
+        RecurringJob.RemoveIfExists("Daily-submission-job");    
     }
-    aa = jobSettings["Posting"];
     // --- 3. Posting Job ---
     if (jobSettings["Posting"] == "1")
     {
@@ -128,7 +146,6 @@ using (var scope = app.Services.CreateScope())
     {
         RecurringJob.RemoveIfExists("posting-job");
     }
-    aa = jobSettings["NoShow"];
     // --- 4. Mark NoShow Job ---
     if (jobSettings["NoShow"] == "1")
     {
@@ -138,7 +155,6 @@ using (var scope = app.Services.CreateScope())
     {
         RecurringJob.RemoveIfExists("mark-noshow-job");
     }
-    aa = jobSettings["Reports"];
     // --- 5. Reports Logs Job ---
     if (jobSettings["Reports"] == "1")
     {
@@ -148,7 +164,6 @@ using (var scope = app.Services.CreateScope())
     {
         RecurringJob.RemoveIfExists("reports-logs-job");
     }
-    aa = jobSettings["Reminders"];
     // --- 6. Appointment Email Job ---
     if (jobSettings["Reminders"] == "1")
     {
@@ -158,7 +173,6 @@ using (var scope = app.Services.CreateScope())
     {
         RecurringJob.RemoveIfExists("appointment-email-job");
     }
-    aa = jobSettings["AppointmentEligibility"];
     // --- 6. Appointment Email Job ---
     if (jobSettings["AppointmentEligibility"] == "1")
     {
@@ -172,16 +186,25 @@ using (var scope = app.Services.CreateScope())
     {
         RecurringJob.RemoveIfExists("AppointmentEligibilityJob");
     }
-
-
-
 }
+static TimeZoneInfo EasternTimeZone()
+{
+    foreach (string id in new[] { "Eastern Standard Time", "America/New_York" })
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(id);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+        }
+    }
 
+    throw new TimeZoneNotFoundException("Eastern time zone not found on this machine.");
+}
 
 app.MapControllers();
 app.Run();
-
-// Authorization filter
 public class AllowAllDashboardAuthorizationFilter : IDashboardAuthorizationFilter
 {
     public bool Authorize(DashboardContext context) => true;

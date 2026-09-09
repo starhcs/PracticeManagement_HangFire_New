@@ -1,23 +1,53 @@
-﻿
-using HangfireNew.Controllers;
+using Hangfire;
+using HangfireNew.VMModels;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
-using System.Threading.Tasks;
-using HangfireNew.VMModels;
-using Hangfire;
 
 namespace HangfireNew.Services
 {
     public interface ISubmissionService
     {
-        Task SubmissionJob();
+        // NOTE: the "one at a time" rule for the Hourly / Daily submission runs is NOT
+        // applied here. Hangfire ignores filter attributes placed on an interface when
+        // the job was registered through an interface-typed variable, so it is applied
+        // as a global filter (JobMutexFilter) in Program.cs instead.
+        Task SubmissionJob(string jobType);
     }
 
     public class SubmissionService : ISubmissionService
     {
+        #region Constants
+
+        private const string LogsTableName = "SUBMISSIONJOBLOGS";
+        private const string LogsNature = "Submission";
+        private const string CredentialsKey = "SubmissionJob";
+
+        private static readonly TimeSpan HttpTimeout = TimeSpan.FromMinutes(5);
+
+        /// <summary>
+        /// The two claim flavours the job submits. Everything that differs between
+        /// Professional and Institutional submission lives here, so the submission
+        /// logic below is written only once.
+        /// </summary>
+        private static readonly ClaimTypeSetting[] ClaimTypes =
+        {
+            new("P", "Professional",  "Generate837P", "ElectronicSubmission/SubmitProfessionalClaims"),
+            new("I", "Institutional", "Generate837I", "ElectronicSubmission/SubmitInstitutionalClaims")
+        };
+
+        private sealed record ClaimTypeSetting(
+            string ExportFormat,
+            string Label,
+            string GenerateTableName,
+            string SubmitEndpoint);
+
+        #endregion
+
+        #region Fields / ctor
+
         private readonly ApiSettings _apiSettings;
         private readonly Dictionary<string, UserCredentials> _userCredentials;
         private readonly HttpClient _httpClient;
@@ -26,587 +56,361 @@ namespace HangfireNew.Services
         {
             _apiSettings = apiSettings.Value;
             _userCredentials = credentialsStore.Value.UserCredentials;
-            _httpClient = new HttpClient();
+            _httpClient = new HttpClient { Timeout = HttpTimeout };
         }
+
+        #endregion
+
+        #region Endpoints
+
+        private string Url(string relativePath) => $"{_apiSettings.BaseAddress}{relativePath}";
+
+        private string LoginUrl => Url("Login/Login");
+        private string FreshTokenUrl => Url("Login/GetFreshToken");
+        private string WriteLogsUrl => Url("HangfireJobs/WriteSubmissionJobLog");
+        private string LastLogIdUrl => Url("HangfireJobs/GetLastLogID");
+        private string SendLogsEmailUrl => Url("HangfireJobs/SendLogsEmail");
+        private string PracticesUrl => Url("General/GetAllPractices");
+        private string SwitchPracticeUrl => Url("General/SwitchPractice");
+        private string SubmitterReceiverUrl => Url("Download/SubmitterReceiverAutoDownload");
+        private string ClaimIdsUrl => Url("ElectronicSubmission/GetClaimIDsAutoSubmission");
+        private string UploadClaimFileUrl => Url("EDI/UploadClaimFile");
+
+        private string Jobtype = string.Empty; 
+        #endregion
+
+        #region Job entry point
+
+        [AutomaticRetry(Attempts = 0)]
+        public async Task SubmissionJob(string jobType)
+        {
+            Jobtype = jobType;
+            int initialLogId = await GetLastLogIDAsync() + 1;
+            if (initialLogId <= 0)
+            {
+                throw new Exception("Invalid lastLogID received. Aborting Submission job.");
+            }
+
+            if (!await LoginAsync())
+            {
+                return;
+            }
+
+            await WriteLogAsync($"{Jobtype} : Submission Job Started");
+
+            await ProcessAllPracticesAsync();
+
+            int finalLogId = await GetLastLogIDAsync();
+            string emailResponse = await SendLogsEmail(initialLogId, finalLogId);
+            Console.WriteLine(emailResponse);
+        }
+
+        #endregion
+
+        #region Practices
+
+        private async Task ProcessAllPracticesAsync()
+        {
+            HttpResponseMessage response = await PostAsync(PracticesUrl, new
+            {
+                TableName = "Practice",
+                Value = "SubmissionJobs"
+            });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                await WriteLogAsync($"{Jobtype} : Practices not Found ", response.ReasonPhrase);
+                return;
+            }
+
+            var practices = JsonConvert.DeserializeObject<List<Practices>>(
+                await response.Content.ReadAsStringAsync());
+
+            await WriteLogAsync($"{Jobtype} : Practices Found : {practices?.Count ?? 0}");
+            if (practices == null)
+            {
+                return;
+            }
+
+            foreach (Practices practice in practices)
+            {
+                await ProcessPracticeAsync(practice);
+            }
+
+            await WriteLogAsync($"{Jobtype} : Submission Job Ended");
+        }
+
+        private async Task ProcessPracticeAsync(Practices practice)
+        {
+            if (await SwitchPracticeAsync(practice.PracticeID))
+            {
+                string? token = await GetFreshTokenAsync();
+
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    UseBearerToken(token);
+                    await WriteLogAsync($"{Jobtype} : Submission Started for {practice.PracticeName}");
+                    await SubmitPracticeClaimsAsync();
+                }
+            }
+
+            await WriteLogAsync($"{Jobtype} : Submission Finished for {practice.PracticeName}");
+        }
+
+        private async Task<bool> SwitchPracticeAsync(int practiceId)
+        {
+            HttpResponseMessage response = await PostAsync(SwitchPracticeUrl, new
+            {
+                TableName = "Practice",
+                Data = new { CurrentPracticeID = practiceId.ToString() }
+            });
+
+            return response.IsSuccessStatusCode;
+        }
+
+        #endregion
+
+        #region Claim submission
+
+        private async Task SubmitPracticeClaimsAsync()
+        {
+            List<SubmitterReceiverIds>? submitterReceivers = await GetSubmitterReceiversAsync();
+            if (submitterReceivers == null || submitterReceivers.Count == 0)
+            {
+                return;
+            }
+
+            // Professional first, then Institutional (same order as before).
+            foreach (ClaimTypeSetting claimType in ClaimTypes)
+            {
+                foreach (SubmitterReceiverIds submitterReceiver in submitterReceivers)
+                {
+                    if (IsClaimType(submitterReceiver, claimType))
+                    {
+                        await SubmitBatchAsync(claimType, submitterReceiver.SubmitterReceiverID.ToString());
+                    }
+                }
+            }
+        }
+
+        private async Task<List<SubmitterReceiverIds>?> GetSubmitterReceiversAsync()
+        {
+            HttpResponseMessage response = await PostAsync(SubmitterReceiverUrl, new
+            {
+                TableName = "SubmitterReceiver",
+                Value = "SubmissionJobs"
+            });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return JsonConvert.DeserializeObject<List<SubmitterReceiverIds>>(
+                await response.Content.ReadAsStringAsync());
+        }
+
+        private static bool IsClaimType(SubmitterReceiverIds submitterReceiver, ClaimTypeSetting claimType) =>
+            string.Equals(submitterReceiver.ExportFormat?.Trim(), claimType.ExportFormat,
+                StringComparison.OrdinalIgnoreCase);
+
+        private async Task SubmitBatchAsync(ClaimTypeSetting claimType, string submitterReceiverId)
+        {
+            // 1. Which claims are waiting for this submitter/receiver?
+            HttpResponseMessage claimIdsResponse = await PostAsync(ClaimIdsUrl, new
+            {
+                ID = submitterReceiverId,
+                TableName = "ElectronicSubmissionJobs",
+                Value = claimType.ExportFormat,
+                Data = new Dictionary<string, string>
+                {
+                    ["Jobtype"] = Jobtype
+                }
+            });
+
+            if (!claimIdsResponse.IsSuccessStatusCode)
+            {
+                await WriteLogAsync(
+                    $"{Jobtype} : {claimType.Label} Submission failed | for SubmitterReceiverID {submitterReceiverId} " +
+                    "and No Claim Found For Auto Submission and  apis Not Get Data " +
+                    "ElectronicSubmission/GetClaimIDsAutoSubmission");
+                return;
+            }
+
+            string claimIds = await claimIdsResponse.Content.ReadAsStringAsync();
+
+            // 2. Generate the 837 batch.
+            HttpResponseMessage submitResponse = await PostAsync(Url(claimType.SubmitEndpoint), new
+            {
+                TableName = claimType.GenerateTableName,
+                ClaimIds = claimIds,
+                SubmitterReceiverID = submitterReceiverId,
+                CallingFrom = $"JOB : {Jobtype}",
+
+            });
+
+            if (!submitResponse.IsSuccessStatusCode)
+            {
+                await WriteLogAsync(
+                    $"{Jobtype} : {claimType.Label} Submission failed | for SubmitterReceiverID {submitterReceiverId} | and  CLAIMIDS :  {claimIds}",
+                    submitResponse.ReasonPhrase);
+                return;
+            }
+
+            // 3. Transmit the generated batch file.
+            string batchId = await ReadEdiClaimBatchIdAsync(submitResponse);
+            bool transmitted = await TryTransmitBatchAsync(batchId);
+
+            await WriteLogAsync(transmitted
+                ? $"{Jobtype} : {claimType.Label} Submission processed and File Transmit Batch {batchId}| for SubmitterReceiverID {submitterReceiverId} and  CLAIMIDS :  {claimIds} "
+                : $"{Jobtype} : {claimType.Label} Submission processed and No  File Transmit  Batch {batchId}| for SubmitterReceiverID {submitterReceiverId} and  CLAIMIDS :  {claimIds}");
+        }
+        private async Task<bool> TryTransmitBatchAsync(string ediClaimBatchId)
+        {
+            if (!int.TryParse(ediClaimBatchId, out int batchId) || batchId <= 0)
+            {
+                return false;
+            }
+
+            HttpResponseMessage response = await PostAsync(UploadClaimFileUrl, new
+            {
+                TableName = "EDIClaimBatch",
+                ID = ediClaimBatchId,
+                SearchCriteria = new Dictionary<string, string>
+                {
+                    { "EDIClaimBatchID", ediClaimBatchId }
+                }
+            });
+
+            return response.IsSuccessStatusCode;
+        }
+
+        private static async Task<string> ReadEdiClaimBatchIdAsync(HttpResponseMessage response)
+        {
+            string body = await response.Content.ReadAsStringAsync();
+            return JObject.Parse(body)["ediClaimBatchID"]?.ToString() ?? string.Empty;
+        }
+
+        #endregion
+
+        #region Authentication
+
+        private async Task<bool> LoginAsync()
+        {
+            UserCredentials credentials = _userCredentials[CredentialsKey];
+
+            HttpResponseMessage response = await PostAsync(LoginUrl, new
+            {
+                credentials.Email,
+                credentials.Password
+            });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                await WriteLogAsync($"{Jobtype} : Submission Job could not be started ", response.ReasonPhrase);
+                return false;
+            }
+
+            string? token = ReadToken(await response.Content.ReadAsStringAsync());
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                await WriteLogAsync($"{Jobtype} : Submission Job could not be started ", "No token returned by Login/Login");
+                return false;
+            }
+
+            UseBearerToken(token);
+            return true;
+        }
+
+        private async Task<string?> GetFreshTokenAsync()
+        {
+            HttpResponseMessage response = await PostAsync(FreshTokenUrl, new { TableName = "User" });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            return ReadToken(await response.Content.ReadAsStringAsync());
+        }
+
+        private static string? ReadToken(string responseBody) =>
+            JObject.Parse(responseBody)["token"]?.ToString();
+
+        private void UseBearerToken(string token) =>
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        #endregion
+
+        #region Logging
+
+        private async Task WriteLogAsync(string message, string? exceptionMessage = null)
+        {
+            try
+            {
+                await PostAsync(WriteLogsUrl, new
+                {
+                    TableName = LogsTableName,
+                    Data = new Dictionary<string, string>
+                    {
+                        { "Message", message },
+                        { "ExceptionMsg", exceptionMessage ?? string.Empty }
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                // A failed log write must never take the whole job down.
+                //Console.WriteLine($"{Jobtype} :  [submission-job] Could not write log \"{message}\": {ex.Message}");
+            }
+        }
+
         public async Task<int> GetLastLogIDAsync()
         {
-            using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
-            var model = new
-            {
-                TableName = "SUBMISSIONJOBLOGS"
-            };
+            HttpResponseMessage response = await PostAsync(LastLogIdUrl, new { TableName = LogsTableName });
+            string json = await ReadSuccessBodyAsync(response);
 
-            string apiUrl = $"{_apiSettings.BaseAddress}HangfireJobs/GetLastLogID";
-            string payload = JsonConvert.SerializeObject(model);
-            var content = new StringContent(payload, Encoding.UTF8, "application/json");
-
-            HttpResponseMessage response = await httpClient.PostAsync(apiUrl, content);
-
-            if (response.IsSuccessStatusCode)
-            {
-                string jsonResult = await response.Content.ReadAsStringAsync();
-                int logId = JsonConvert.DeserializeObject<int>(jsonResult);
-                return logId;
-            }
-            else
-            {
-
-                throw new Exception($"API call failed: {response.StatusCode}");
-            }
+            return JsonConvert.DeserializeObject<int>(json);
         }
+
         public async Task<string> SendLogsEmail(int initialLogID, int finalLogID)
         {
-            using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
-            var model = new
+            HttpResponseMessage response = await PostAsync(SendLogsEmailUrl, new
             {
-                TableName = "SUBMISSIONJOBLOGS",
-                LogsNature = "Submission",
+                TableName = LogsTableName,
+                LogsNature = Jobtype +" "+LogsNature,
                 Data = new
                 {
                     InitialLogID = initialLogID.ToString(),
                     FinalLogID = finalLogID.ToString()
                 }
-            };
+            });
 
+            return await ReadSuccessBodyAsync(response);
+        }
 
-            string apiUrl = $"{_apiSettings.BaseAddress}HangfireJobs/SendLogsEmail";
-            string payload = JsonConvert.SerializeObject(model);
-            var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        #endregion
 
-            HttpResponseMessage response = await httpClient.PostAsync(apiUrl, content);
+        #region HTTP helpers
 
-            if (response.IsSuccessStatusCode)
-            {
-                string jsonResult = await response.Content.ReadAsStringAsync();
-                return jsonResult;
-            }
-            else
+        private Task<HttpResponseMessage> PostAsync(string url, object payload)
+        {
+            string json = JsonConvert.SerializeObject(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            return _httpClient.PostAsync(url, content);
+        }
+
+        private static async Task<string> ReadSuccessBodyAsync(HttpResponseMessage response)
+        {
+            if (!response.IsSuccessStatusCode)
             {
                 throw new Exception($"API call failed: {response.StatusCode}");
             }
+
+            return await response.Content.ReadAsStringAsync();
         }
-        [AutomaticRetry(Attempts = 0)]
-        public async Task SubmissionJob()
-        {
-            int lastLogID = await GetLastLogIDAsync() + 1;
-            if (lastLogID <= 0)
-            {
-                throw new Exception("Invalid lastLogID received. Aborting Submission job.");
-            }
-            HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
-            var loginModel = new
-            {
-                Email = _userCredentials["SubmissionJob"].Email,
-                Password = _userCredentials["SubmissionJob"].Password
-            };
-            string ApiAddress = $"{_apiSettings.BaseAddress}";
-            string loginURL = $"{ApiAddress}Login/Login";
-            string WriteLogsURL = $"{ApiAddress}HangfireJobs/WriteSubmissionJobLog";
-            string payloadLogin = JsonConvert.SerializeObject(loginModel);
 
-            var contentLogin = new StringContent(payloadLogin, Encoding.UTF8, "application/json");
-
-
-            HttpResponseMessage responseLogin = await httpClient.PostAsync(loginURL, contentLogin);
-            if (responseLogin.IsSuccessStatusCode)
-            {
-                var job_started_model = new
-                {
-                    TableName = "SUBMISSIONJOBLOGS",
-                    Data = new Dictionary<string, string>
-                    {
-                            { "Message", "Submission Job Started" },
-                            { "ExceptionMsg", "" }
-                    }
-                };
-                string payloadJobStarted = JsonConvert.SerializeObject(job_started_model);
-                var contentJobStarted = new StringContent(payloadJobStarted, Encoding.UTF8, "application/json");
-                HttpResponseMessage responseJobStarted = await httpClient.PostAsync(WriteLogsURL, contentJobStarted);
-                string responseContent = await responseLogin.Content.ReadAsStringAsync();
-                var jsonObject = JObject.Parse(responseContent);
-                string token = jsonObject["token"].ToString();
-                httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-                string PracticesUrl = $"{ApiAddress}General/GetAllPractices";
-                var PracticesModel = new
-                {
-                    TableName = "Practice",
-                    Value = "SubmissionJobs"
-                };
-                string PracticesPayloadJson = JsonConvert.SerializeObject(PracticesModel);
-
-                var contentPractices = new StringContent(PracticesPayloadJson, Encoding.UTF8, "application/json");
-
-                HttpResponseMessage responsePractices = await httpClient.PostAsync(PracticesUrl, contentPractices);
-                if (responsePractices.IsSuccessStatusCode)
-                {
-                    string responsePracticesContent = await responsePractices.Content.ReadAsStringAsync();
-                    var data = JsonConvert.DeserializeObject<List<Practices>>(responsePracticesContent);
-                    var fetched_practices_model = new
-                    {
-                        PracticeID = 0,
-                        TableName = "SUBMISSIONJOBLOGS",
-                        Data = new Dictionary<string, string>
-                        {
-                            { "Message", $"Practices Found : {data?.Count ?? 0}" },
-                            { "ExceptionMsg", "" }
-                        }
-                    };
-                    string payloadFetchedPractices = JsonConvert.SerializeObject(fetched_practices_model);
-                    var contentFetchedPractices = new StringContent(payloadFetchedPractices, Encoding.UTF8, "application/json");
-                    HttpResponseMessage responseFetchedPractices = await httpClient.PostAsync(WriteLogsURL, contentFetchedPractices);
-                    if (data == null && data!.Count == 0)
-                    {
-
-                    }
-                    else
-                    {
-
-                        for (int i = 0; i < data.Count; i++) /////////// practices loop iteration
-                        {
-                            string switchPracticeUrl = $"{ApiAddress}General/SwitchPractice";
-                            var switchPracticeModel = new
-                            {
-                                TableName = "Practice",
-                                Data = new
-                                {
-                                    CurrentPracticeID = $"{data[i].PracticeID}"
-                                }
-                            };
-
-                            string SwitchPracticepayloadJson = JsonConvert.SerializeObject(switchPracticeModel);
-
-                            var SwitchPracticeContent = new StringContent(SwitchPracticepayloadJson, Encoding.UTF8, "application/json");
-                            HttpResponseMessage responseSwitchPractice = await httpClient.PostAsync(switchPracticeUrl, SwitchPracticeContent);
-                            if (responseSwitchPractice.IsSuccessStatusCode)
-                            {
-
-
-
-                                string GetTokenUrl = $"{ApiAddress}Login/GetFreshToken";
-                                var GetTokenModel = new
-                                {
-                                    TableName = "User",
-
-                                };
-
-                                string GetTokenpayloadJson = JsonConvert.SerializeObject(GetTokenModel);
-
-                                var GetTokenContent = new StringContent(GetTokenpayloadJson, Encoding.UTF8, "application/json");
-                                HttpResponseMessage responseGetToken = await httpClient.PostAsync(GetTokenUrl, GetTokenContent);
-                                if (responseGetToken.IsSuccessStatusCode)
-                                {
-                                    string responseGetTokenContent = await responseGetToken.Content.ReadAsStringAsync();
-                                    var GetTokenJsonObject = JObject.Parse(responseGetTokenContent);
-                                    string gettoken = GetTokenJsonObject["token"].ToString();
-                                    httpClient = new HttpClient();
-                                    httpClient.Timeout = TimeSpan.FromMinutes(5);
-                                    httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", gettoken);
-                                    var downloading_files_model = new
-                                    {
-                                        TableName = "SUBMISSIONJOBLOGS",
-                                        Data = new Dictionary<string, string>
-                                        {
-                                            { "Message", $"Submission Started for {data[i].PracticeName}" },
-                                            { "ExceptionMsg", "" }
-                                        }
-                                    };
-                                    string payloadDownloadingFiles = JsonConvert.SerializeObject(downloading_files_model);
-                                    var contentDownloadingFiles = new StringContent(payloadDownloadingFiles, Encoding.UTF8, "application/json");
-                                    HttpResponseMessage responseDownloadingFiles = await httpClient.PostAsync(WriteLogsURL, contentDownloadingFiles);
-                                    var POSTINGMODEL = new
-                                    {
-                                        TableName = "SubmitterReceiver",
-                                        Value = "SubmissionJobs"
-                                    };
-
-
-
-                                    string processFileJson = JsonConvert.SerializeObject(POSTINGMODEL);
-                                    var processFileContent = new StringContent(processFileJson, Encoding.UTF8, "application/json");
-
-                                    string processFileUrl = $"{ApiAddress}Download/SubmitterReceiverAutoDownload";
-
-                                    HttpResponseMessage response1 = await httpClient.PostAsync(processFileUrl, processFileContent);
-                                    if (response1.IsSuccessStatusCode)
-                                    {
-                                        string responseSubmitterReceiverContent = await response1.Content.ReadAsStringAsync();
-                                        JArray submitterReceiverArray = JArray.Parse(responseSubmitterReceiverContent);
-                                        var SubmitterReceiver = JsonConvert.DeserializeObject<List<SubmitterReceiverIds>>(responseSubmitterReceiverContent);
-                                        if (SubmitterReceiver == null && SubmitterReceiver!.Count == 0)
-                                        {
-
-                                        }
-                                        else
-                                        {
-                                            ////Professional Claim Submission
-                                            for (int j = 0; j < SubmitterReceiver.Count; j++)
-                                            {
-                                                string ExportFormat = SubmitterReceiver[j].ExportFormat.ToString();
-
-                                                if (ExportFormat.ToUpper() == "P")
-                                                {
-                                                    string SubmitterReceiverID = SubmitterReceiver[j].SubmitterReceiverID.ToString();
-
-                                                    var Model = new
-                                                    {
-                                                        ID = SubmitterReceiverID,
-                                                        TableName = "ElectronicSubmissionJobs",
-                                                        Value = "P"
-                                                    };
-
-                                                    string processFileJson1 = JsonConvert.SerializeObject(Model);
-                                                    var processFileContent1 = new StringContent(processFileJson1, Encoding.UTF8, "application/json");
-
-                                                    string processFileUrl1 = $"{ApiAddress}ElectronicSubmission/GetClaimIDsAutoSubmission";
-
-                                                    HttpResponseMessage response2 = await httpClient.PostAsync(processFileUrl1, processFileContent1);
-
-                                                    if (response2.IsSuccessStatusCode)
-                                                    {
-
-                                                        string resp = await response2.Content.ReadAsStringAsync();
-
-                                                        var Model1 = new
-                                                        {
-                                                            TableName = "Generate837P",
-                                                            ClaimIds = resp,
-                                                            SubmitterReceiverID = SubmitterReceiverID,
-                                                            CallingFrom = "JOB",
-                                                        }
-                                                     ;
-                                                        string processFileJson2 = JsonConvert.SerializeObject(Model1);
-                                                        var processFileContent2 = new StringContent(processFileJson2, Encoding.UTF8, "application/json");
-                                                        string processFileUrl2 = $"{ApiAddress}ElectronicSubmission/SubmitProfessionalClaims";
-                                                        HttpResponseMessage response3 = await httpClient.PostAsync(processFileUrl2, processFileContent2);
-                                                        if (response3.IsSuccessStatusCode)
-                                                        {
-
-                                                            string response3String = await response3.Content.ReadAsStringAsync();
-
-                                                            var OBJ = JObject.Parse(response3String);
-                                                            string ediClaimBatchID = OBJ["ediClaimBatchID"].ToString();
-
-
-                                                            if (int.TryParse(ediClaimBatchID, out int resultt) && resultt > 0)
-                                                            {
-                                                                var UploadClaimFileModel = new
-                                                                {
-                                                                    TableName = "EDIClaimBatch",
-                                                                    ID = ediClaimBatchID,
-                                                                    SearchCriteria = new Dictionary<string, string>
-                                                                    {
-                                                                        { "EDIClaimBatchID", ediClaimBatchID }
-                                                                    }
-
-                                                                };
-                                                                string UploadClaimFileModelJSON = JsonConvert.SerializeObject(UploadClaimFileModel);
-                                                                var UploadClaimFileFileContent1 = new StringContent(UploadClaimFileModelJSON, Encoding.UTF8, "application/json");
-
-                                                                string FileUrl1 = $"{ApiAddress}EDI/UploadClaimFile";
-
-                                                                HttpResponseMessage response2Trnsmit = await httpClient.PostAsync(FileUrl1, UploadClaimFileFileContent1);
-
-                                                                if (response2Trnsmit.IsSuccessStatusCode)
-                                                                {
-                                                                    var process_files_after_download_model = new
-                                                                    {
-                                                                        TableName = "SUBMISSIONJOBLOGS",
-                                                                                Data = new Dictionary<string, string>
-                                                                        {
-                                                                            { "Message", $"Professional Submission processed and File Transmit Batch {ediClaimBatchID} for SubmitterReceiverID {Model.ID}  and  CLAIMIDS :  {resp} " },
-                                                                            { "ExceptionMsg", "" }
-                                                                        }
-                                                                    };
-                                                                    string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
-                                                                    var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
-                                                                    HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
-
-
-
-                                                                }
-                                                            
-                                                            }
-                                                            else
-                                                            {
-                                                                var process_files_after_download_model = new
-                                                                {
-                                                                    TableName = "SUBMISSIONJOBLOGS",
-                                                                    Data = new Dictionary<string, string>
-                                                                    {
-                                                                        { "Message", $"Professional Submission processed and No  File Transmit  Batch {ediClaimBatchID} for SubmitterReceiverID {Model.ID} and  CLAIMIDS :  {resp}" },
-                                                                        { "ExceptionMsg", "" }
-                                                                    }
-                                                                };
-                                                                string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
-                                                                var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
-                                                                HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
-                                                            }
-
-
-                                                        }
-                                                        else
-                                                        {
-                                                            var process_files_after_download_failed_model = new
-                                                            {
-                                                                TableName = "SUBMISSIONJOBLOGS",
-                                                                Data = new Dictionary<string, string>
-                                                                {
-                                                                    { "Message", $"Professional Submission failed for SubmitterReceiverID {Model.ID} and  CLAIMIDS :  {resp}" },
-                                                                    { "ExceptionMsg", $"{response3.ReasonPhrase}"}
-                                                                }
-                                                            };
-                                                            string payloadProcessFilesAfterDownloadFailed = JsonConvert.SerializeObject(process_files_after_download_failed_model);
-                                                            var contentProcessFilesAfterDownloadFailed = new StringContent(payloadProcessFilesAfterDownloadFailed, Encoding.UTF8, "application/json");
-                                                            HttpResponseMessage responseProcessFilesAfterDownloadFailed = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownloadFailed);
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-
-                                                        var downloading_failed_for_file_model = new
-                                                        {
-                                                            TableName = "SUBMISSIONJOBLOGS",
-                                                            Data = new Dictionary<string, string>
-                                                        {
-                                                            { "Message", $"Professional Submission failed for SubmitterReceiverID {Model.ID} and No Claim Found For Auto Submission and  apis Not Get Data ElectronicSubmission/GetClaimIDsAutoSubmission" },
-                                                            { "ExceptionMsg", "" }
-                                                        }
-                                                        };
-                                                        string payloadFailedForFile = JsonConvert.SerializeObject(downloading_failed_for_file_model);
-                                                        var contentFailedForFile = new StringContent(payloadFailedForFile, Encoding.UTF8, "application/json");
-                                                        HttpResponseMessage responseFailedForFile = await httpClient.PostAsync(WriteLogsURL, contentFailedForFile);
-
-
-                                                    }
-
-                                                }
-
-                                            }
-
-                                            ////Institutional Claim Submission
-                                            for (int j = 0; j < SubmitterReceiver.Count; j++)
-                                            {
-                                                string ExportFormat = SubmitterReceiver[j].ExportFormat.ToString();
-
-                                                if (ExportFormat.ToUpper() == "I")
-                                                {
-                                                    string SubmitterReceiverID = SubmitterReceiver[j].SubmitterReceiverID.ToString();
-
-                                                    var Model = new
-                                                    {
-                                                        ID = SubmitterReceiverID,
-                                                        TableName = "ElectronicSubmissionJobs",
-                                                        Value = "I"
-                                                    };
-
-                                                    string processFileJson1 = JsonConvert.SerializeObject(Model);
-                                                    var processFileContent1 = new StringContent(processFileJson1, Encoding.UTF8, "application/json");
-
-                                                    string processFileUrl1 = $"{ApiAddress}ElectronicSubmission/GetClaimIDsAutoSubmission";
-
-                                                    HttpResponseMessage response2 = await httpClient.PostAsync(processFileUrl1, processFileContent1);
-
-                                                    if (response2.IsSuccessStatusCode)
-                                                    {
-
-                                                        string resp = await response2.Content.ReadAsStringAsync();
-
-                                                        var Model1 = new
-                                                        {
-                                                            TableName = "Generate837I",
-                                                            ClaimIds = resp,
-                                                            SubmitterReceiverID = SubmitterReceiverID,
-                                                            CallingFrom = "JOB",
-                                                        };
-                                                        string processFileJson2 = JsonConvert.SerializeObject(Model1);
-                                                        var processFileContent2 = new StringContent(processFileJson2, Encoding.UTF8, "application/json");
-                                                        string processFileUrl2 = $"{ApiAddress}ElectronicSubmission/SubmitInstitutionalClaims";
-                                                        HttpResponseMessage response3 = await httpClient.PostAsync(processFileUrl2, processFileContent2);
-                                                        if (response3.IsSuccessStatusCode)
-                                                        {
-
-                                                            string response3String = await response3.Content.ReadAsStringAsync();
-
-                                                            var OBJ = JObject.Parse(response3String);
-                                                            string ediClaimBatchID = OBJ["ediClaimBatchID"].ToString();
-                                                            //int.TryParse(ediClaimBatchID, out int resultt);
-
-                                                            if (int.TryParse(ediClaimBatchID, out int resultt) && resultt > 0)
-                                                            {
-                                                                //var Models = new
-                                                                //{
-                                                                //    TableName = "EDIClaimBatch",
-                                                                //    SearchCriteria = new { EDIClaimBatchID = ediClaimBatchID }
-                                                                //};
-
-                                                                var UploadClaimFileModels = new
-                                                                {
-                                                                    TableName = "EDIClaimBatch",
-                                                                    ID = ediClaimBatchID,
-                                                                    SearchCriteria = new Dictionary<string, string>
-                                                                    {
-                                                                        { "EDIClaimBatchID", ediClaimBatchID }
-                                                                    }
-
-                                                                };
-
-                                                                string UploadClaimFileFileJson1 = JsonConvert.SerializeObject(UploadClaimFileModels);
-                                                                var UploadClaimFileFileContent1 = new StringContent(UploadClaimFileFileJson1, Encoding.UTF8, "application/json");
-
-                                                                string FileUrl1 = $"{ApiAddress}/EDI/UploadClaimFile";
-
-                                                                HttpResponseMessage response2Trnsmit = await httpClient.PostAsync(FileUrl1, UploadClaimFileFileContent1);
-
-                                                                if (response2Trnsmit.IsSuccessStatusCode)
-                                                                {
-                                                                    var process_files_after_download_model = new
-                                                                    {
-                                                                        TableName = "SUBMISSIONJOBLOGS",
-                                                                        Data = new Dictionary<string, string>
-                                                                        {
-                                                                            { "Message", $"Institutional Submission processed and File Transmit Batch {ediClaimBatchID} for SubmitterReceiverID {Model.ID}  and  CLAIMIDS :  {resp} " },
-                                                                            { "ExceptionMsg", "" }
-                                                                        }
-                                                                    };
-                                                                    string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
-                                                                    var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
-                                                                    HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
-
-                                                                }
-                                                                else
-                                                                {
-                                                                    var process_files_after_download_model = new
-                                                                    {
-                                                                        TableName = "SUBMISSIONJOBLOGS",
-                                                                        Data = new Dictionary<string, string>
-                                                                        {
-                                                                            { "Message", $"Institutional Submission processed and No  File Transmit  Batch {ediClaimBatchID} for SubmitterReceiverID {Model.ID} and  CLAIMIDS :  {resp}"  },
-                                                                            { "ExceptionMsg", "" }
-                                                                        }
-                                                                    };
-                                                                    string payloadProcessFilesAfterDownload = JsonConvert.SerializeObject(process_files_after_download_model);
-                                                                    var contentProcessFilesAfterDownload = new StringContent(payloadProcessFilesAfterDownload, Encoding.UTF8, "application/json");
-                                                                    HttpResponseMessage responseProcessFilesAfterDownload = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownload);
-                                                                }
-                                                            }
-
-                                                        }
-                                                        else
-                                                        {
-                                                            var process_files_after_download_failed_model = new
-                                                            {
-                                                                TableName = "SUBMISSIONJOBLOGS",
-                                                                Data = new Dictionary<string, string>
-                                                        {
-                                                            { "Message", $"Institutional Submission failed for SubmitterReceiverID {Model.ID} and  CLAIMIDS :  {resp}" },
-                                                            { "ExceptionMsg", $"{response3.ReasonPhrase}"}
-                                                        }
-                                                            };
-                                                            string payloadProcessFilesAfterDownloadFailed = JsonConvert.SerializeObject(process_files_after_download_failed_model);
-                                                            var contentProcessFilesAfterDownloadFailed = new StringContent(payloadProcessFilesAfterDownloadFailed, Encoding.UTF8, "application/json");
-                                                            HttpResponseMessage responseProcessFilesAfterDownloadFailed = await httpClient.PostAsync(WriteLogsURL, contentProcessFilesAfterDownloadFailed);
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-
-                                                        var downloading_failed_for_file_model = new
-                                                        {
-                                                            TableName = "SUBMISSIONJOBLOGS",
-                                                            Data = new Dictionary<string, string>
-                                                        {
-                                                            { "Message", $"Institutional Submission failed for SubmitterReceiverID {Model.ID} and No Claim Found For Auto Submission and  apis Not Get Data ElectronicSubmission/GetClaimIDsAutoSubmission" },
-                                                            { "ExceptionMsg", "" }
-                                                        }
-                                                        };
-                                                        string payloadFailedForFile = JsonConvert.SerializeObject(downloading_failed_for_file_model);
-                                                        var contentFailedForFile = new StringContent(payloadFailedForFile, Encoding.UTF8, "application/json");
-                                                        HttpResponseMessage responseFailedForFile = await httpClient.PostAsync(WriteLogsURL, contentFailedForFile);
-
-
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                    }
-                                }
-                                else
-                                {
-                                    ////Handle API error
-                                }
-                                var downloading_finished_for_practice_model = new
-                                {
-                                    TableName = "SUBMISSIONJOBLOGS",
-                                    Data = new Dictionary<string, string>
-                                                    {
-                                                        { "Message", $"Submission Finished for {data[i].PracticeName}" },
-                                                        { "ExceptionMsg", "" }
-                                                    }
-                                };
-                                string payloadFinishedForPractice = JsonConvert.SerializeObject(downloading_finished_for_practice_model);
-                                var contentFinishedForPractice = new StringContent(payloadFinishedForPractice, Encoding.UTF8, "application/json");
-                                HttpResponseMessage responseFinishedForPractice = await httpClient.PostAsync(WriteLogsURL, contentFinishedForPractice);
-
-                            }
-                        }
-
-                        var job_finished_model = new
-                        {
-                            PracticeID = 0,
-                            TableName = "SUBMISSIONJOBLOGS",
-                            Data = new Dictionary<string, string>
-                            {
-                                { "Message", $"Submission Job Ended" },
-                                { "ExceptionMsg", "" }
-                            }
-                        };
-                        string payloadJobFinished = JsonConvert.SerializeObject(job_finished_model);
-                        var contentJobFinished = new StringContent(payloadJobFinished, Encoding.UTF8, "application/json");
-                        HttpResponseMessage responseJobFinished = await httpClient.PostAsync(WriteLogsURL, contentJobFinished);
-
-                    }
-                }
-                else if (!responsePractices.IsSuccessStatusCode)
-                {
-                    var didnot_fetch_practices_model = new
-                    {
-                        PracticeID = 0,
-                        TableName = "SUBMISSIONJOBLOGS",
-                        Data = new Dictionary<string, string>
-                        {
-                            { "Message", $"Practices not Found " },
-                            { "ExceptionMsg", $"{responsePractices.ReasonPhrase}" }
-                        }
-                    };
-                    string payloadDidnotFetchPractices = JsonConvert.SerializeObject(didnot_fetch_practices_model);
-                    var contentDidnotFetchPractices = new StringContent(payloadDidnotFetchPractices, Encoding.UTF8, "application/json");
-                    HttpResponseMessage responseDidnotFetchPractices = await httpClient.PostAsync(WriteLogsURL, contentDidnotFetchPractices);
-                }
-
-                int lastLogID1 = await GetLastLogIDAsync();
-                string response = await SendLogsEmail(lastLogID, lastLogID1);
-                Console.WriteLine(response);
-            }
-            else if (!responseLogin.IsSuccessStatusCode)
-            {
-                var job_didnot_start_model = new
-                {
-                    PracticeID = 0,
-                    TableName = "SUBMISSIONJOBLOGS",
-                    Data = new Dictionary<string, string>
-                    {
-                            { "Message", $"Submission Job could not be started " },
-                            { "ExceptionMsg", $"{responseLogin.ReasonPhrase}" }
-                    }
-                };
-                string payloadJobDidnotStart = JsonConvert.SerializeObject(job_didnot_start_model);
-                var contentJobDidnotStart = new StringContent(payloadJobDidnotStart, Encoding.UTF8, "application/json");
-                HttpResponseMessage responseJobDidnotStarted = await httpClient.PostAsync(WriteLogsURL, contentJobDidnotStart);
-            }
-        }
+        #endregion
     }
 }
