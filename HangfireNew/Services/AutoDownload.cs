@@ -60,7 +60,7 @@ namespace HangfireNew.Services
             var model = new
             {
                 TableName = "AUTODOWNLOADJOBLOGS",
-                LogsNature = "Download",
+                LogsNature = "Download Job Logs",
                 Data = new
                 {
                     InitialLogID = initialLogID.ToString(),

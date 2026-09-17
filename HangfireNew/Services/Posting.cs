@@ -58,7 +58,7 @@ namespace HangfireNew.Services
             var model = new
             {
                 TableName = "POSTINGJOBLOGS",
-                LogsNature = "Posting",
+                LogsNature = "Posting Job Logs",
                 Data = new
                 {
                     InitialLogID = initialLogID.ToString(),

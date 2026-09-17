@@ -22,7 +22,7 @@ namespace HangfireNew.Services
         #region Constants
 
         private const string LogsTableName = "SUBMISSIONJOBLOGS";
-        private const string LogsNature = "Submission";
+        private const string LogsNature = "Submission Job Logs";
         private const string CredentialsKey = "SubmissionJob";
 
         private static readonly TimeSpan HttpTimeout = TimeSpan.FromMinutes(5);
