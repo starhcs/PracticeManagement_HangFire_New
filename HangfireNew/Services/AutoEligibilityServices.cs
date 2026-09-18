@@ -18,13 +18,16 @@ namespace HangfireNew.Services
     public class AutoEligibility : IAutoEligibilityJobService
     {
         private readonly ApiSettings _apiSettings;
+        private readonly string _jobServiceApiKey;
         private readonly CredentialsStore _credentials;
 
         public AutoEligibility(
             IOptions<ApiSettings> apiSettings,
-            IOptions<CredentialsStore> credentials)
+            IOptions<CredentialsStore> credentials,
+            IOptions<JobServiceOptions> jobServiceOptions)
         {
             _apiSettings = apiSettings.Value;
+            _jobServiceApiKey = jobServiceOptions.Value.ApiKey;
             _credentials = credentials.Value;
         }
 
@@ -367,9 +370,12 @@ namespace HangfireNew.Services
                 Password = _credentials.UserCredentials["AppointmentEligibilityJob"].Password
             };
 
-            var response = await httpClient.PostAsync(
-                $"{_apiSettings.BaseAddress}Login/Login",
-                CreateContent(model));
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiSettings.BaseAddress}Login/Login")
+            {
+                Content = CreateContent(model)
+            };
+            request.Headers.Add("X-Job-Service-Key", _jobServiceApiKey);
+            var response = await httpClient.SendAsync(request);
 
             if (!response.IsSuccessStatusCode)
                 throw new Exception("Login failed");
@@ -410,9 +416,12 @@ namespace HangfireNew.Services
 
         private async Task<string> GetFreshToken(HttpClient httpClient)
         {
-            var response = await httpClient.PostAsync(
-                $"{_apiSettings.BaseAddress}Login/GetFreshToken",
-                CreateContent(new { TableName = "User" }));
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiSettings.BaseAddress}Login/GetFreshToken")
+            {
+                Content = CreateContent(new { TableName = "User" })
+            };
+            request.Headers.Add("X-Job-Service-Key", _jobServiceApiKey);
+            var response = await httpClient.SendAsync(request);
 
             if (!response.IsSuccessStatusCode)
                 throw new Exception("GetFreshToken failed");
