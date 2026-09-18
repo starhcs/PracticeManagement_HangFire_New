@@ -49,12 +49,14 @@ namespace HangfireNew.Services
         #region Fields / ctor
 
         private readonly ApiSettings _apiSettings;
+        private readonly string _jobServiceApiKey;
         private readonly Dictionary<string, UserCredentials> _userCredentials;
         private readonly HttpClient _httpClient;
 
-        public SubmissionService(IOptions<ApiSettings> apiSettings, IOptions<CredentialsStore> credentialsStore)
+        public SubmissionService(IOptions<ApiSettings> apiSettings, IOptions<CredentialsStore> credentialsStore, IOptions<JobServiceOptions> jobServiceOptions)
         {
             _apiSettings = apiSettings.Value;
+            _jobServiceApiKey = jobServiceOptions.Value.ApiKey;
             _userCredentials = credentialsStore.Value.UserCredentials;
             _httpClient = new HttpClient { Timeout = HttpTimeout };
         }
@@ -299,7 +301,7 @@ namespace HangfireNew.Services
         {
             UserCredentials credentials = _userCredentials[CredentialsKey];
 
-            HttpResponseMessage response = await PostAsync(LoginUrl, new
+            HttpResponseMessage response = await PostAuthenticationAsync(LoginUrl, new
             {
                 credentials.Email,
                 credentials.Password
@@ -324,7 +326,7 @@ namespace HangfireNew.Services
 
         private async Task<string?> GetFreshTokenAsync()
         {
-            HttpResponseMessage response = await PostAsync(FreshTokenUrl, new { TableName = "User" });
+            HttpResponseMessage response = await PostAuthenticationAsync(FreshTokenUrl, new { TableName = "User" });
 
             if (!response.IsSuccessStatusCode)
             {
@@ -392,6 +394,16 @@ namespace HangfireNew.Services
         #endregion
 
         #region HTTP helpers
+
+        private async Task<HttpResponseMessage> PostAuthenticationAsync(string url, object payload)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(JsonConvert.SerializeObject(payload), Encoding.UTF8, "application/json")
+            };
+            request.Headers.Add("X-Job-Service-Key", _jobServiceApiKey);
+            return await _httpClient.SendAsync(request);
+        }
 
         private Task<HttpResponseMessage> PostAsync(string url, object payload)
         {

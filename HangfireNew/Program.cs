@@ -12,6 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Configuration
 builder.Services.Configure<ApiSettings>(builder.Configuration.GetSection("ApiSettings"));
 builder.Services.Configure<CredentialsStore>(builder.Configuration);
+builder.Services.Configure<JobServiceOptions>(builder.Configuration.GetSection(JobServiceOptions.SectionName));
 
 builder.Services.Configure<ConnectionStrings>(builder.Configuration.GetSection("ConnectionStrings"));
 
@@ -223,3 +224,7 @@ static TimeZoneInfo EasternTimeZone()
 
 app.MapControllers();
 app.Run();
+public class AllowAllDashboardAuthorizationFilter : IDashboardAuthorizationFilter
+{
+    public bool Authorize(DashboardContext context) => true;
+}

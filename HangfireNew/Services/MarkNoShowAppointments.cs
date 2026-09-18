@@ -15,12 +15,14 @@ namespace HangfireNew.Services
     public class MarkNoShowAppointmentsService : IMarkNoShowAppointmentsService
     {
         private readonly ApiSettings _apiSettings;
+        private readonly string _jobServiceApiKey;
         private readonly Dictionary<string, UserCredentials> _userCredentials;
         private readonly HttpClient _httpClient;
 
-        public MarkNoShowAppointmentsService(IOptions<ApiSettings> apiSettings, IOptions<CredentialsStore> credentialsStore)
+        public MarkNoShowAppointmentsService(IOptions<ApiSettings> apiSettings, IOptions<CredentialsStore> credentialsStore, IOptions<JobServiceOptions> jobServiceOptions)
         {
             _apiSettings = apiSettings.Value;
+            _jobServiceApiKey = jobServiceOptions.Value.ApiKey;
             _userCredentials = credentialsStore.Value.UserCredentials;
             _httpClient = new HttpClient();
         }
@@ -42,7 +44,9 @@ namespace HangfireNew.Services
             var contentLogin = new StringContent(payloadLogin, Encoding.UTF8, "application/json");
 
 
-            HttpResponseMessage responseLogin = await httpClient.PostAsync(loginURL, contentLogin);
+            using var loginRequest = new HttpRequestMessage(HttpMethod.Post, loginURL) { Content = contentLogin };
+            loginRequest.Headers.Add("X-Job-Service-Key", _jobServiceApiKey);
+            HttpResponseMessage responseLogin = await httpClient.SendAsync(loginRequest);
             if (responseLogin.IsSuccessStatusCode)
             {
                 var job_started_model = new
@@ -124,7 +128,9 @@ namespace HangfireNew.Services
                                 string GetTokenpayloadJson = JsonConvert.SerializeObject(GetTokenModel);
 
                                 var GetTokenContent = new StringContent(GetTokenpayloadJson, Encoding.UTF8, "application/json");
-                                HttpResponseMessage responseGetToken = await httpClient.PostAsync(GetTokenUrl, GetTokenContent);
+                                using var freshTokenRequest = new HttpRequestMessage(HttpMethod.Post, GetTokenUrl) { Content = GetTokenContent };
+                                freshTokenRequest.Headers.Add("X-Job-Service-Key", _jobServiceApiKey);
+                                HttpResponseMessage responseGetToken = await httpClient.SendAsync(freshTokenRequest);
                                 if (responseGetToken.IsSuccessStatusCode)
                                 {
                                     string responseGetTokenContent = await responseGetToken.Content.ReadAsStringAsync();
