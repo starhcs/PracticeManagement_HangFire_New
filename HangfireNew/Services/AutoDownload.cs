@@ -15,14 +15,25 @@ namespace HangfireNew.Services
     public class AutoDownloadService : IAutoDownloadService
     {
         private readonly ApiSettings _apiSettings;
+        private readonly string _jobServiceApiKey;
         private readonly Dictionary<string, UserCredentials> _userCredentials;
         private readonly HttpClient _httpClient;
 
-        public AutoDownloadService(IOptions<ApiSettings> apiSettings, IOptions<CredentialsStore> credentialsStore)
+        public AutoDownloadService(IOptions<ApiSettings> apiSettings, IOptions<CredentialsStore> credentialsStore,
+            IOptions<JobServiceOptions> jobServiceOptions)
         {
             _apiSettings = apiSettings.Value;
+            _jobServiceApiKey = jobServiceOptions.Value.ApiKey;
             _userCredentials = credentialsStore.Value.UserCredentials;
             _httpClient = new HttpClient();
+        }
+
+        private async Task<HttpResponseMessage> PostAuthenticationAsync(HttpClient httpClient, string url, HttpContent content)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+            request.Headers.Add("X-Job-Service-Key", _jobServiceApiKey);
+
+            return await httpClient.SendAsync(request).ConfigureAwait(false);
         }
 
         public async Task<int> GetLastLogIDAsync()
@@ -89,6 +100,11 @@ namespace HangfireNew.Services
         [AutomaticRetry(Attempts = 0)]
         public async Task AutoDownloadJob()
         {
+            //if (string.IsNullOrWhiteSpace(_jobServiceApiKey))
+            //{
+            //    throw new InvalidOperationException("JobService:ApiKey is required for AutoDownload authentication.");
+            //}
+
             int lastLogID = await GetLastLogIDAsync() + 1;
             if (lastLogID < 0)
             {
@@ -109,7 +125,7 @@ namespace HangfireNew.Services
             var contentLogin = new StringContent(payloadLogin, Encoding.UTF8, "application/json");
 
 
-            HttpResponseMessage responseLogin = await httpClient.PostAsync(loginURL, contentLogin);
+            HttpResponseMessage responseLogin = await PostAuthenticationAsync(httpClient, loginURL, contentLogin);
             if (responseLogin.IsSuccessStatusCode)
             {
                 var job_started_model = new
@@ -191,7 +207,7 @@ namespace HangfireNew.Services
                                 string GetTokenpayloadJson = JsonConvert.SerializeObject(GetTokenModel);
 
                                 var GetTokenContent = new StringContent(GetTokenpayloadJson, Encoding.UTF8, "application/json");
-                                HttpResponseMessage responseGetToken = await httpClient.PostAsync(GetTokenUrl, GetTokenContent);
+                                HttpResponseMessage responseGetToken = await PostAuthenticationAsync(httpClient, GetTokenUrl, GetTokenContent);
                                 if (responseGetToken.IsSuccessStatusCode)
                                 {
                                     string responseGetTokenContent = await responseGetToken.Content.ReadAsStringAsync();
