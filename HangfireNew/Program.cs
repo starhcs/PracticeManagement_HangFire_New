@@ -1,6 +1,7 @@
 using Hangfire;
 using Hangfire.Dashboard;
 using HangfireNew.Controllers;
+using HangfireNew.Security;
 using HangfireNew.Services;
 using HangfireNew.VMModels;
 using Microsoft.Data.SqlClient;
@@ -13,6 +14,11 @@ builder.Services.Configure<ApiSettings>(builder.Configuration.GetSection("ApiSet
 builder.Services.Configure<CredentialsStore>(builder.Configuration);
 
 builder.Services.Configure<ConnectionStrings>(builder.Configuration.GetSection("ConnectionStrings"));
+
+// Login for the /hangfire dashboard. Credentials come from the environment
+// (DashboardAuth__Username / DashboardAuth__Password, backed by a Key Vault or App
+// Configuration reference in staging and production) - never from committed config.
+builder.Services.AddHangfireDashboardLogin(builder.Configuration, builder.Environment);
 
 //var jobSettings = builder.Configuration
 //    .GetSection("JobSettings")
@@ -73,10 +79,22 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Hangfire Dashboard (testing only)
+// Hangfire Dashboard - reachable only with a valid dashboard sign-in session.
+// See HangfireNew.Security.HangfireDashboardAuth for how the login works.
+var dashboardAuthOptions = app.Services.GetRequiredService<IOptionsMonitor<DashboardAuthOptions>>();
+
+if (!dashboardAuthOptions.CurrentValue.IsConfigured)
+{
+    app.Logger.LogWarning(
+        "DashboardAuth:Username / DashboardAuth:Password are not configured - nobody can sign in to " +
+        "/hangfire until they are set. Background jobs are unaffected.");
+}
+
+app.UseHangfireDashboardLogin();
+
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
-    Authorization = new[] { new AllowAllDashboardAuthorizationFilter() }
+    Authorization = new[] { new DashboardAuthorizationFilter() }
 });
 
 //using (var scope = app.Services.CreateScope())
@@ -205,7 +223,3 @@ static TimeZoneInfo EasternTimeZone()
 
 app.MapControllers();
 app.Run();
-public class AllowAllDashboardAuthorizationFilter : IDashboardAuthorizationFilter
-{
-    public bool Authorize(DashboardContext context) => true;
-}
