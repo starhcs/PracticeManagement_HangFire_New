@@ -49,6 +49,12 @@ namespace HangfireNew.Services
             HttpResponseMessage responseLogin = await httpClient.SendAsync(loginRequest);
             if (responseLogin.IsSuccessStatusCode)
             {
+                // Set the token before any HangfireJobs/* call - those endpoints require it.
+                string responseContent = await responseLogin.Content.ReadAsStringAsync();
+                var jsonObject = JObject.Parse(responseContent);
+                string token = jsonObject["token"].ToString();
+                httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
                 var job_started_model = new
                 {
                     TableName = "MARKNOSHOWAPPOINTMENTSJOBLOGS",
@@ -61,10 +67,6 @@ namespace HangfireNew.Services
                 string payloadJobStarted = JsonConvert.SerializeObject(job_started_model);
                 var contentJobStarted = new StringContent(payloadJobStarted, Encoding.UTF8, "application/json");
                 HttpResponseMessage responseJobStarted = await httpClient.PostAsync(WriteLogsURL, contentJobStarted);
-                string responseContent = await responseLogin.Content.ReadAsStringAsync();
-                var jsonObject = JObject.Parse(responseContent);
-                string token = jsonObject["token"].ToString();
-                httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
                 string PracticesUrl = $"{ApiAddress}General/GetAllPractices";
                 var PracticesModel = new
                 {

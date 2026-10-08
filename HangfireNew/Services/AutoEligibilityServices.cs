@@ -39,15 +39,21 @@ namespace HangfireNew.Services
             string WriteLogsURL = $"{ApiAddress}HangfireJobs/WriteEligibilityJobLog";
 
 
-            int lastLogID = await GetLastLogIDAsync("ELIGIBILITYJOBLOGS") + 1;
-            if (lastLogID <= 0)
-            {
-                throw new Exception("Invalid lastLogID received. Aborting Submission job.");
-            }
             using var httpClient = new HttpClient
             {
                 Timeout = TimeSpan.FromMinutes(15)
             };
+
+            // Log in first: HangfireJobs/* endpoints require the Bearer token.
+            string token = await Login(httpClient);
+            httpClient.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
+
+            int lastLogID = await GetLastLogIDAsync(httpClient, "ELIGIBILITYJOBLOGS") + 1;
+            if (lastLogID <= 0)
+            {
+                throw new Exception("Invalid lastLogID received. Aborting Submission job.");
+            }
 
             var job_started_model = new
             {
@@ -61,11 +67,6 @@ namespace HangfireNew.Services
             string payloadJobStarted = JsonConvert.SerializeObject(job_started_model);
             var contentJobStarted = new StringContent(payloadJobStarted, Encoding.UTF8, "application/json");
             HttpResponseMessage responseJobStarted = await httpClient.PostAsync(WriteLogsURL, contentJobStarted);
-
-
-            string token = await Login(httpClient);
-            httpClient.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", token);
 
 
 
@@ -328,16 +329,15 @@ namespace HangfireNew.Services
             HttpResponseMessage responseJobFinished = await httpClient.PostAsync(WriteLogsURL, contentJobFinished);
 
 
-            int lastLogID1 = await GetLastLogIDAsync("ELIGIBILITYJOBLOGS");
-            string response = await SendLogsEmail(lastLogID, lastLogID1);
+            int lastLogID1 = await GetLastLogIDAsync(httpClient, "ELIGIBILITYJOBLOGS");
+            string response = await SendLogsEmail(httpClient, lastLogID, lastLogID1);
 
         }
 
 
-        public async Task<int> GetLastLogIDAsync(string tablename )
+        // httpClient must already carry the Bearer token: HangfireJobs/* endpoints require it.
+        public async Task<int> GetLastLogIDAsync(HttpClient httpClient, string tablename )
         {
-            using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(5);
             var model = new
             {
                 TableName = tablename
@@ -459,10 +459,9 @@ namespace HangfireNew.Services
             return JsonConvert.DeserializeObject<AutoEligibilityParams>(json);
         }
 
-        public async Task<string> SendLogsEmail(int initialLogID, int finalLogID)
+        // httpClient must already carry the Bearer token: HangfireJobs/* endpoints require it.
+        public async Task<string> SendLogsEmail(HttpClient httpClient, int initialLogID, int finalLogID)
         {
-            using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(15);
             var model = new
             {
                 TableName = "ELIGIBILITYJOBLOGS",

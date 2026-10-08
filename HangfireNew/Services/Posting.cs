@@ -26,10 +26,9 @@ namespace HangfireNew.Services
             _userCredentials = credentialsStore.Value.UserCredentials;
             _httpClient = new HttpClient();
         }
-        public async Task<int> GetLastLogIDAsync()
+        // httpClient must already carry the Bearer token: HangfireJobs/* endpoints require it.
+        public async Task<int> GetLastLogIDAsync(HttpClient httpClient)
         {
-            using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(15);
             var model = new
             {
                 TableName = "POSTINGJOBLOGS"
@@ -53,10 +52,9 @@ namespace HangfireNew.Services
                 throw new Exception($"API call failed: {response.StatusCode}");
             }
         }
-        public async Task<string> SendLogsEmail(int initialLogID, int finalLogID)
+        // httpClient must already carry the Bearer token: HangfireJobs/* endpoints require it.
+        public async Task<string> SendLogsEmail(HttpClient httpClient, int initialLogID, int finalLogID)
         {
-            using HttpClient httpClient = new();
-            httpClient.Timeout = TimeSpan.FromMinutes(15);
             var model = new
             {
                 TableName = "POSTINGJOBLOGS",
@@ -88,11 +86,6 @@ namespace HangfireNew.Services
         [AutomaticRetry(Attempts = 0)]
         public async Task PostingJob()
         {
-            int lastLogID = await GetLastLogIDAsync() + 1;
-            if (lastLogID <= 0)
-            {
-                throw new Exception("Invalid lastLogID received. Aborting Posting job.");
-            }
             HttpClient httpClient = new();
             httpClient.Timeout = TimeSpan.FromMinutes(15);
             var loginModel = new
@@ -113,6 +106,18 @@ namespace HangfireNew.Services
             HttpResponseMessage responseLogin = await httpClient.SendAsync(loginRequest);
             if (responseLogin.IsSuccessStatusCode)
             {
+                // Set the token before any HangfireJobs/* call - those endpoints require it.
+                string responseContent = await responseLogin.Content.ReadAsStringAsync();
+                var jsonObject = JObject.Parse(responseContent);
+                string token = jsonObject["token"].ToString();
+                httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+                int lastLogID = await GetLastLogIDAsync(httpClient) + 1;
+                if (lastLogID <= 0)
+                {
+                    throw new Exception("Invalid lastLogID received. Aborting Posting job.");
+                }
+
                 var job_started_model = new
                 {
                     TableName = "POSTINGJOBLOGS",
@@ -125,10 +130,6 @@ namespace HangfireNew.Services
                 string payloadJobStarted = JsonConvert.SerializeObject(job_started_model);
                 var contentJobStarted = new StringContent(payloadJobStarted, Encoding.UTF8, "application/json");
                 HttpResponseMessage responseJobStarted = await httpClient.PostAsync(WriteLogsURL, contentJobStarted);
-                string responseContent = await responseLogin.Content.ReadAsStringAsync();
-                var jsonObject = JObject.Parse(responseContent);
-                string token = jsonObject["token"].ToString();
-                httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
                 string PracticesUrl = $"{ApiAddress}General/GetAllPractices";
                 var PracticesModel = new
                 {
@@ -378,8 +379,8 @@ namespace HangfireNew.Services
                 HttpResponseMessage responseJobStarted_END = await httpClient.PostAsync(WriteLogsURL, contentJobStarted_END);
 
 
-                int lastLogID1 = await GetLastLogIDAsync();
-            string response = await SendLogsEmail(lastLogID, lastLogID1);
+                int lastLogID1 = await GetLastLogIDAsync(httpClient);
+            string response = await SendLogsEmail(httpClient, lastLogID, lastLogID1);
             Console.WriteLine(response);
             }
             else
