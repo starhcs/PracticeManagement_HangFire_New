@@ -87,15 +87,17 @@ namespace HangfireNew.Services
         public async Task SubmissionJob(string jobType)
         {
             Jobtype = jobType;
+
+            // Log in first: HangfireJobs/GetLastLogID requires the Bearer token.
+            if (!await LoginAsync())
+            {
+                return;
+            }
+
             int initialLogId = await GetLastLogIDAsync() + 1;
             if (initialLogId <= 0)
             {
                 throw new Exception("Invalid lastLogID received. Aborting Submission job.");
-            }
-
-            if (!await LoginAsync())
-            {
-                return;
             }
 
             await WriteLogAsync($"{Jobtype} : Submission Job Started");
