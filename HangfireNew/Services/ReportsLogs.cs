@@ -34,7 +34,7 @@ namespace HangfireNew.Services
             };
 
             string ApiAddress = $"{_apiSettings.BaseAddress}";
-            string reportsLogsURL = $"{ApiAddress}HangfireJobs/GenerateAndRmailReportsLogs";
+            string reportsLogsURL = $"{ApiAddress}api/hangfire-jobs/generate-and-rmail-reports-logs";
             string payloadreportsLogs = JsonConvert.SerializeObject(reportsLogsModel);
             var contentreportsLogs = new StringContent(payloadreportsLogs, Encoding.UTF8, "application/json");
             HttpResponseMessage reportsLogsLogin = await httpClient.PostAsync(reportsLogsURL, contentreportsLogs);

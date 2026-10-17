@@ -34,7 +34,7 @@ namespace HangfireNew.Services
                 TableName = "POSTINGJOBLOGS"
             };
 
-            string apiUrl = $"{_apiSettings.BaseAddress}HangfireJobs/GetLastLogID";
+            string apiUrl = $"{_apiSettings.BaseAddress}api/hangfire-jobs/last-log-id";
             string payload = JsonConvert.SerializeObject(model);
             var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
@@ -67,7 +67,7 @@ namespace HangfireNew.Services
             };
 
 
-            string apiUrl = $"{_apiSettings.BaseAddress}HangfireJobs/SendLogsEmail";
+            string apiUrl = $"{_apiSettings.BaseAddress}api/hangfire-jobs/send-logs-email";
             string payload = JsonConvert.SerializeObject(model);
             var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
@@ -94,8 +94,8 @@ namespace HangfireNew.Services
                 Password = _userCredentials["PostingJob"].Password
             };
             string ApiAddress = $"{_apiSettings.BaseAddress}";
-            string loginURL = $"{ApiAddress}Login/Login";
-            string WriteLogsURL = $"{ApiAddress}HangfireJobs/WritePostingJobLog";
+            string loginURL = $"{ApiAddress}api/login/login";
+            string WriteLogsURL = $"{ApiAddress}api/hangfire-jobs/write-posting-job-log";
             string payloadLogin = JsonConvert.SerializeObject(loginModel);
 
             var contentLogin = new StringContent(payloadLogin, Encoding.UTF8, "application/json");
@@ -130,7 +130,7 @@ namespace HangfireNew.Services
                 string payloadJobStarted = JsonConvert.SerializeObject(job_started_model);
                 var contentJobStarted = new StringContent(payloadJobStarted, Encoding.UTF8, "application/json");
                 HttpResponseMessage responseJobStarted = await httpClient.PostAsync(WriteLogsURL, contentJobStarted);
-                string PracticesUrl = $"{ApiAddress}General/GetAllPractices";
+                string PracticesUrl = $"{ApiAddress}api/general/all-practices";
                 var PracticesModel = new
                 {
                     TableName = "Practice",
@@ -182,7 +182,7 @@ namespace HangfireNew.Services
                         //DataRow  dataRow= dataTable.Rows[0];
                         for (int i = 0; i < data.Count; i++)
                         {
-                            string switchPracticeUrl = $"{ApiAddress}General/SwitchPractice";
+                            string switchPracticeUrl = $"{ApiAddress}api/general/switch-practice";
                             var switchPracticeModel = new
                             {
                                 TableName = "Practice",
@@ -199,7 +199,7 @@ namespace HangfireNew.Services
                             if (responseSwitchPractice.IsSuccessStatusCode)
                             {
 
-                                string GetTokenUrl = $"{ApiAddress}Login/GetFreshToken";
+                                string GetTokenUrl = $"{ApiAddress}api/login/fresh-token";
                                 var GetTokenModel = new
                                 {
                                     TableName = "User",
@@ -240,7 +240,7 @@ namespace HangfireNew.Services
                                     string processFileJson = JsonConvert.SerializeObject(POSTINGMODEL);
                                     var processFileContent = new StringContent(processFileJson, Encoding.UTF8, "application/json");
 
-                                    string processFileUrl = $"{ApiAddress}Payment/GetcheckforPosting";
+                                    string processFileUrl = $"{ApiAddress}api/payment/getcheckfor-posting";
 
                                     HttpResponseMessage response1 = await httpClient.PostAsync(processFileUrl, processFileContent);
                                     if (response1.IsSuccessStatusCode)
@@ -285,7 +285,7 @@ namespace HangfireNew.Services
                                                     string processFileJson1 = JsonConvert.SerializeObject(Model);
                                                     var processFileContent1 = new StringContent(processFileJson1, Encoding.UTF8, "application/json");
 
-                                                    string processFileUrl1 = $"{ApiAddress}Payment/PostEra";
+                                                    string processFileUrl1 = $"{ApiAddress}api/payment/post-era";
 
                                                     HttpResponseMessage response2 = await httpClient.PostAsync(processFileUrl1, processFileContent1);
 

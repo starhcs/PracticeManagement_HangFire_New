@@ -34,8 +34,8 @@ namespace HangfireNew.Services
         /// </summary>
         private static readonly ClaimTypeSetting[] ClaimTypes =
         {
-            new("P", "Professional",  "Generate837P", "ElectronicSubmission/SubmitProfessionalClaims"),
-            new("I", "Institutional", "Generate837I", "ElectronicSubmission/SubmitInstitutionalClaims")
+            new("P", "Professional",  "Generate837P", "api/electronic-submission/submit-professional-claims"),
+            new("I", "Institutional", "Generate837I", "api/electronic-submission/submit-institutional-claims")
         };
 
         private sealed record ClaimTypeSetting(
@@ -67,16 +67,16 @@ namespace HangfireNew.Services
 
         private string Url(string relativePath) => $"{_apiSettings.BaseAddress}{relativePath}";
 
-        private string LoginUrl => Url("Login/Login");
-        private string FreshTokenUrl => Url("Login/GetFreshToken");
-        private string WriteLogsUrl => Url("HangfireJobs/WriteSubmissionJobLog");
-        private string LastLogIdUrl => Url("HangfireJobs/GetLastLogID");
-        private string SendLogsEmailUrl => Url("HangfireJobs/SendLogsEmail");
-        private string PracticesUrl => Url("General/GetAllPractices");
-        private string SwitchPracticeUrl => Url("General/SwitchPractice");
-        private string SubmitterReceiverUrl => Url("Download/SubmitterReceiverAutoDownload");
-        private string ClaimIdsUrl => Url("ElectronicSubmission/GetClaimIDsAutoSubmission");
-        private string UploadClaimFileUrl => Url("EDI/UploadClaimFile");
+        private string LoginUrl => Url("api/login/login");
+        private string FreshTokenUrl => Url("api/login/fresh-token");
+        private string WriteLogsUrl => Url("api/hangfire-jobs/write-submission-job-log");
+        private string LastLogIdUrl => Url("api/hangfire-jobs/last-log-id");
+        private string SendLogsEmailUrl => Url("api/hangfire-jobs/send-logs-email");
+        private string PracticesUrl => Url("api/general/all-practices");
+        private string SwitchPracticeUrl => Url("api/general/switch-practice");
+        private string SubmitterReceiverUrl => Url("api/download/submitter-receiver-auto-download");
+        private string ClaimIdsUrl => Url("api/electronic-submission/claim-i-ds-auto-submission");
+        private string UploadClaimFileUrl => Url("api/edi/upload-claim-file");
 
         private string Jobtype = string.Empty; 
         #endregion
@@ -237,7 +237,7 @@ namespace HangfireNew.Services
                 await WriteLogAsync(
                     $"{Jobtype} : {claimType.Label} Submission failed | for SubmitterReceiverID {submitterReceiverId} " +
                     "and No Claim Found For Auto Submission and  apis Not Get Data " +
-                    "ElectronicSubmission/GetClaimIDsAutoSubmission");
+                    "api/electronic-submission/claim-i-ds-auto-submission");
                 return;
             }
 

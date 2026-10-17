@@ -36,7 +36,7 @@ namespace HangfireNew.Services
         public async Task AutoAppointmentEligibilityJob()
         {
             string ApiAddress = $"{_apiSettings.BaseAddress}";
-            string WriteLogsURL = $"{ApiAddress}HangfireJobs/WriteEligibilityJobLog";
+            string WriteLogsURL = $"{ApiAddress}api/hangfire-jobs/write-eligibility-job-log";
 
 
             using var httpClient = new HttpClient
@@ -110,7 +110,7 @@ namespace HangfireNew.Services
 
 
                             var getResponse = await httpClient.PostAsync(
-                                $"{_apiSettings.BaseAddress}Eligibility/GetAppointmentEligibilityJob",
+                                $"{_apiSettings.BaseAddress}api/eligibility/get-appointment-eligibility-job",
                                 CreateContent(new { TableName = "AppointmentEligibility" }));
 
                             if (!getResponse.IsSuccessStatusCode)
@@ -125,7 +125,7 @@ namespace HangfireNew.Services
                             foreach (var item in data)
                             {
                                 var processResponse = await httpClient.PostAsync(
-                                    $"{_apiSettings.BaseAddress}Eligibility/AppointmentEligibilityJob",
+                                    $"{_apiSettings.BaseAddress}api/eligibility/appointment-eligibility-job",
                                     CreateContent(new
                                     {
                                         TableName = "GETDATAAPPOINTMENTEDI270GENERATION",
@@ -226,7 +226,7 @@ namespace HangfireNew.Services
 
 
                             var getResponse = await httpClient.PostAsync(
-                                $"{_apiSettings.BaseAddress}Eligibility/GetPatientAutoEligibilityJob",
+                                $"{_apiSettings.BaseAddress}api/eligibility/patient-auto-eligibility-job",
                                 CreateContent(new { TableName = "AppointmentEligibility" }));
 
                             if (!getResponse.IsSuccessStatusCode)
@@ -241,7 +241,7 @@ namespace HangfireNew.Services
                             foreach (var item in data)
                             {
                                 var processResponse = await httpClient.PostAsync(
-                                    $"{_apiSettings.BaseAddress}Eligibility/EligibilityRequest",
+                                    $"{_apiSettings.BaseAddress}api/eligibility/eligibility-request",
                                     CreateContent(new
                                     {
                                         TableName = "Generate270",
@@ -343,7 +343,7 @@ namespace HangfireNew.Services
                 TableName = tablename
             };
 
-            string apiUrl = $"{_apiSettings.BaseAddress}HangfireJobs/GetLastLogID";
+            string apiUrl = $"{_apiSettings.BaseAddress}api/hangfire-jobs/last-log-id";
             string payload = JsonConvert.SerializeObject(model);
             var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
@@ -370,7 +370,7 @@ namespace HangfireNew.Services
                 Password = _credentials.UserCredentials["AppointmentEligibilityJob"].Password
             };
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiSettings.BaseAddress}Login/Login")
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiSettings.BaseAddress}api/login/login")
             {
                 Content = CreateContent(model)
             };
@@ -386,7 +386,7 @@ namespace HangfireNew.Services
         private async Task<List<Practices>> GetPractices(HttpClient httpClient)
         {
             var response = await httpClient.PostAsync(
-                $"{_apiSettings.BaseAddress}General/GetAllPractices",
+                $"{_apiSettings.BaseAddress}api/general/all-practices",
                 CreateContent(new
                 {
                     TableName = "Practice",
@@ -403,7 +403,7 @@ namespace HangfireNew.Services
         private async Task SwitchPractice(HttpClient httpClient, int practiceId)
         {
             var response = await httpClient.PostAsync(
-                $"{_apiSettings.BaseAddress}General/SwitchPractice",
+                $"{_apiSettings.BaseAddress}api/general/switch-practice",
                 CreateContent(new
                 {
                     TableName = "Practice",
@@ -416,7 +416,7 @@ namespace HangfireNew.Services
 
         private async Task<string> GetFreshToken(HttpClient httpClient)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiSettings.BaseAddress}Login/GetFreshToken")
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{_apiSettings.BaseAddress}api/login/fresh-token")
             {
                 Content = CreateContent(new { TableName = "User" })
             };
@@ -440,7 +440,7 @@ namespace HangfireNew.Services
         public async Task<AutoEligibilityParams> GetAutoEligibilityParams(HttpClient httpClient)
         {
             var response = await httpClient.PostAsync(
-                $"{_apiSettings.BaseAddress}General/FindByID",
+                $"{_apiSettings.BaseAddress}api/general/by-id",
                 CreateContent(new
                 {
                     TableName = "PracticesSetting",
@@ -474,7 +474,7 @@ namespace HangfireNew.Services
             };
 
 
-            string apiUrl = $"{_apiSettings.BaseAddress}HangfireJobs/SendLogsEmail";
+            string apiUrl = $"{_apiSettings.BaseAddress}api/hangfire-jobs/send-logs-email";
             string payload = JsonConvert.SerializeObject(model);
             var content = new StringContent(payload, Encoding.UTF8, "application/json");
 
@@ -587,7 +587,7 @@ namespace HangfireNew.Services
 
 //            // ================= API 1 : GET DATA =================
 //            var getResponse = await httpClient.PostAsync(
-//                $"{_apiSettings.BaseAddress}Eligibility/GetAppointmentEligibilityJob",
+//                $"{_apiSettings.BaseAddress}api/eligibility/get-appointment-eligibility-job",
 //                CreateContent(new
 //                {
 //                    TableName = "AppointmentEligibility"
@@ -605,7 +605,7 @@ namespace HangfireNew.Services
 
 //            // ================= API 2 : PROCESS DATA =================
 //            var processResponse = await httpClient.PostAsync(
-//                $"{_apiSettings.BaseAddress}Eligibility/AppointmentEligibilityJob",
+//                $"{_apiSettings.BaseAddress}api/eligibility/appointment-eligibility-job",
 //                CreateContent(new
 //                {
 //                    TableName = "GETDATAAPPOINTMENTEDI270GENERATION",
@@ -627,7 +627,7 @@ namespace HangfireNew.Services
 //            };
 
 //            var response = await httpClient.PostAsync(
-//                $"{_apiSettings.BaseAddress}Login/Login",
+//                $"{_apiSettings.BaseAddress}api/login/login",
 //                CreateContent(model));
 
 //            if (!response.IsSuccessStatusCode)
@@ -641,7 +641,7 @@ namespace HangfireNew.Services
 //        private async Task SwitchPractice(HttpClient httpClient, int practiceId)
 //        {
 //            var response = await httpClient.PostAsync(
-//                $"{_apiSettings.BaseAddress}General/SwitchPractice",
+//                $"{_apiSettings.BaseAddress}api/general/switch-practice",
 //                CreateContent(new
 //                {
 //                    TableName = "Practice",
@@ -655,7 +655,7 @@ namespace HangfireNew.Services
 //        private async Task<string> GetFreshToken(HttpClient httpClient)
 //        {
 //            var response = await httpClient.PostAsync(
-//                $"{_apiSettings.BaseAddress}Login/GetFreshToken",
+//                $"{_apiSettings.BaseAddress}api/login/fresh-token",
 //                CreateContent(new { TableName = "User" }));
 
 //            if (!response.IsSuccessStatusCode)
@@ -735,7 +735,7 @@ namespace HangfireNew.Services
 ////            };
 
 ////            var loginResponse = await _httpClient.PostAsync(
-////                $"{_apiSettings.BaseAddress}Login/Login",
+////                $"{_apiSettings.BaseAddress}api/login/login",
 ////                new StringContent(JsonConvert.SerializeObject(loginModel), Encoding.UTF8, "application/json")
 ////            );
 
@@ -754,7 +754,7 @@ namespace HangfireNew.Services
 ////            };
 
 ////            var firstApiResponse = await _httpClient.PostAsync(
-////                $"{_apiSettings.BaseAddress}Eligibility/GetAppointmentEligibilityJob",
+////                $"{_apiSettings.BaseAddress}api/eligibility/get-appointment-eligibility-job",
 ////                new StringContent(JsonConvert.SerializeObject(firstApiModel), Encoding.UTF8, "application/json")
 ////            );
 
@@ -786,7 +786,7 @@ namespace HangfireNew.Services
 
 
 ////            var secondApiResponse = await _httpClient.PostAsync(
-////                $"{_apiSettings.BaseAddress}Eligibility/AppointmentEligibilityJob",
+////                $"{_apiSettings.BaseAddress}api/eligibility/appointment-eligibility-job",
 ////                new StringContent(JsonConvert.SerializeObject(secondApiModel), Encoding.UTF8, "application/json")
 ////            );
 
@@ -861,7 +861,7 @@ namespace HangfireNew.Services
 //                };
 
 //                var getResponse = await httpClient.PostAsync(
-//                    $"{_apiSettings.BaseAddress}Eligibility/GetAppointmentEligibilityJob",
+//                    $"{_apiSettings.BaseAddress}api/eligibility/get-appointment-eligibility-job",
 //                    CreateContent(getModel));
 
 //                if (!getResponse.IsSuccessStatusCode)
@@ -895,7 +895,7 @@ namespace HangfireNew.Services
 //                };
 
 //                var processResponse = await httpClient.PostAsync(
-//                    $"{_apiSettings.BaseAddress}Eligibility/AppointmentEligibilityJob",
+//                    $"{_apiSettings.BaseAddress}api/eligibility/appointment-eligibility-job",
 //                    CreateContent(processModel));
 
 //                if (!processResponse.IsSuccessStatusCode)
@@ -913,7 +913,7 @@ namespace HangfireNew.Services
 //            };
 
 //            var response = await httpClient.PostAsync(
-//                $"{_apiSettings.BaseAddress}Login/Login",
+//                $"{_apiSettings.BaseAddress}api/login/login",
 //                CreateContent(loginModel));
 
 //            if (!response.IsSuccessStatusCode)
