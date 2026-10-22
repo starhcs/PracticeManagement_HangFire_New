@@ -3,10 +3,9 @@ using Newtonsoft.Json.Linq;
 using Newtonsoft.Json;
 using System.Text;
 using HangfireNew.VMModels;
-using Azure;
 using Hangfire;
 using System.Data;
-using System.Data.SqlClient;
+using Microsoft.Data.SqlClient;
 
 namespace HangfireNew.Services
 {
